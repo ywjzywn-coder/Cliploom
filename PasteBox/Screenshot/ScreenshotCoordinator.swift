@@ -1,5 +1,7 @@
 import AppKit
+import CoreImage
 import CoreGraphics
+import CoreMedia
 import Foundation
 import ScreenCaptureKit
 
@@ -19,12 +21,14 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
     private var captureTask: Task<Void, Never>?
     private var captureGeneration: UInt = 0
     private var warmupTask: Task<Void, Never>?
+    private let frameCache = ScreenshotFrameCache()
     private var textRecognitionTask: Task<Void, Never>?
     private var barcodeScanTask: Task<Void, Never>?
     private var textRecognitionGeneration: UInt = 0
     private var barcodeScanGeneration: UInt = 0
 
     private static let shareableContentCacheLifetime: TimeInterval = 300
+    private static let frameCacheMaximumAge: TimeInterval = 0.5
 
     init(
         monitor: ClipboardMonitor,
@@ -47,26 +51,33 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         warmupTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
             defer { warmupTask = nil }
-            guard !Task.isCancelled,
-                  let screen = NSScreen.main,
-                  let target = try? await captureTarget(for: screen),
-                  !Task.isCancelled
-            else { return }
-            _ = try? await SCScreenshotManager.captureImage(
-                contentFilter: target.filter,
-                configuration: target.configuration
-            )
+            for screen in NSScreen.screens {
+                guard !Task.isCancelled,
+                      let displayID = displayID(for: screen),
+                      let target = try? await captureTarget(for: screen),
+                      !Task.isCancelled
+                else { continue }
+                try? await frameCache.start(
+                    displayID: displayID,
+                    target: target
+                )
+            }
         }
     }
 
     func refreshWarmState() {
         warmupTask?.cancel()
-        warmupTask = nil
-        invalidateShareableContent()
-        prewarm()
+        warmupTask = Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            await frameCache.stopAll()
+            invalidateShareableContent()
+            warmupTask = nil
+            prewarm()
+        }
     }
 
     func start() {
+        let canUsePreTriggerFrame = overlayController == nil && !isCapturing
         replaceActiveSession()
         guard permissionManager.refresh() else {
             permissionManager.requestPermission()
@@ -77,6 +88,16 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
             showStatus(String(localized: "screenshot.capture.failed"))
             return
         }
+        let cachedImage: CGImage?
+        if canUsePreTriggerFrame,
+           let displayID = displayID(for: screen) {
+            cachedImage = frameCache.image(
+                for: displayID,
+                maximumAge: Self.frameCacheMaximumAge
+            )
+        } else {
+            cachedImage = nil
+        }
 
         isCapturing = true
         captureGeneration &+= 1
@@ -84,9 +105,13 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         captureTask = Task { [weak self] in
             guard let self else { return }
             do {
-                async let image = capture(screen: screen)
                 let windows = capturableWindows(on: screen)
-                let capturedImage = try await image
+                let capturedImage: CGImage
+                if let cachedImage {
+                    capturedImage = cachedImage
+                } else {
+                    capturedImage = try await capture(screen: screen)
+                }
                 guard !Task.isCancelled, generation == captureGeneration else {
                     return
                 }
@@ -471,4 +496,103 @@ private enum ScreenshotError: Error {
 private struct CaptureTarget {
     let filter: SCContentFilter
     let configuration: SCStreamConfiguration
+}
+
+@MainActor
+private final class ScreenshotFrameCache {
+    private struct Entry {
+        let stream: SCStream
+        let receiver: ScreenshotFrameReceiver
+    }
+
+    private var entries: [CGDirectDisplayID: Entry] = [:]
+
+    func start(
+        displayID: CGDirectDisplayID,
+        target: CaptureTarget
+    ) async throws {
+        guard entries[displayID] == nil else { return }
+
+        let configuration = SCStreamConfiguration()
+        configuration.width = target.configuration.width
+        configuration.height = target.configuration.height
+        configuration.showsCursor = false
+        configuration.capturesAudio = false
+        configuration.queueDepth = 2
+        configuration.pixelFormat = kCVPixelFormatType_32BGRA
+        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 15)
+
+        let receiver = ScreenshotFrameReceiver()
+        let stream = SCStream(
+            filter: target.filter,
+            configuration: configuration,
+            delegate: nil
+        )
+        try stream.addStreamOutput(
+            receiver,
+            type: .screen,
+            sampleHandlerQueue: receiver.queue
+        )
+        try await stream.startCapture()
+        entries[displayID] = Entry(stream: stream, receiver: receiver)
+    }
+
+    func image(
+        for displayID: CGDirectDisplayID,
+        maximumAge: TimeInterval
+    ) -> CGImage? {
+        entries[displayID]?.receiver.image(maximumAge: maximumAge)
+    }
+
+    func stopAll() async {
+        let currentEntries = entries.values
+        entries.removeAll()
+        for entry in currentEntries {
+            try? await entry.stream.stopCapture()
+        }
+    }
+}
+
+private final class ScreenshotFrameReceiver: NSObject, SCStreamOutput, @unchecked Sendable {
+    let queue = DispatchQueue(
+        label: "com.local.PasteBox.screenshot-frame-cache",
+        qos: .userInteractive
+    )
+
+    private static let context = CIContext(options: [.cacheIntermediates: false])
+    private let lock = NSLock()
+    private var pixelBuffer: CVPixelBuffer?
+    private var receivedAt: Date?
+
+    func stream(
+        _ stream: SCStream,
+        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
+        of type: SCStreamOutputType
+    ) {
+        guard type == .screen,
+              sampleBuffer.isValid,
+              CMSampleBufferDataIsReady(sampleBuffer),
+              let imageBuffer = sampleBuffer.imageBuffer
+        else { return }
+
+        lock.lock()
+        pixelBuffer = imageBuffer
+        receivedAt = .now
+        lock.unlock()
+    }
+
+    func image(maximumAge: TimeInterval) -> CGImage? {
+        lock.lock()
+        let buffer = pixelBuffer
+        let date = receivedAt
+        lock.unlock()
+
+        guard let buffer,
+              let date,
+              Date().timeIntervalSince(date) <= maximumAge
+        else { return nil }
+
+        let image = CIImage(cvPixelBuffer: buffer)
+        return Self.context.createCGImage(image, from: image.extent)
+    }
 }
