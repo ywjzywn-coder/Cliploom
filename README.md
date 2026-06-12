@@ -1,101 +1,126 @@
-# Cliploom
+<p align="center">
+  <img src="PasteBox/Assets.xcassets/AppIcon.appiconset/icon_512x512.png" width="132" alt="Cliploom 图标">
+</p>
 
-Cliploom 是一个轻量的原生 macOS 剪贴板历史工具。它常驻菜单栏，按 `Option+V`
-即可打开剪贴板面板，支持文本、链接、图片和文件。按 `Option+A` 可启动截图，
-支持窗口识别、自由框选、标注、马赛克、本地 OCR 和扫码。
+<h1 align="center">Cliploom</h1>
 
-## 开始运行
+<p align="center">
+  轻量、原生、本地优先的 macOS 剪贴板与截图工具
+</p>
 
-### 第 1 步：打开工程
+<p align="center">
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?logo=apple">
+  <img alt="Swift 5" src="https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white">
+  <img alt="Native App" src="https://img.shields.io/badge/UI-SwiftUI%20%2B%20AppKit-0A84FF">
+  <img alt="Local Only" src="https://img.shields.io/badge/Data-Local%20Only-34C759">
+</p>
 
-用 Xcode 打开 `PasteBox.xcodeproj`。
+<p align="center">
+  <a href="#核心功能">核心功能</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#权限说明">权限说明</a> ·
+  <a href="#开发与测试">开发与测试</a> ·
+  <a href="WINDOWS_PORT.md">Windows 接力</a>
+</p>
 
-成功标志：Xcode 左上角显示可运行的 `PasteBox` Scheme，目标设备为 `My Mac`。
-工程内部暂时保留原 Scheme 和模块名，用于兼容历史数据与测试；构建出的应用名称为 Cliploom。
+---
 
-### 第 2 步：运行应用
+Cliploom 常驻菜单栏，用 `Option+V` 打开剪贴板历史，用 `Option+A`
+启动清晰、快速的原生截图。文本、链接、图片和文件记录都只保存在本机，
+截图 OCR 与二维码识别也完全在本地完成。
 
-按 Xcode 顶部的运行按钮，或使用快捷键 `Command+R`。
+## 核心功能
 
-成功标志：屏幕顶部菜单栏出现 Cliploom 图标，并弹出首次使用引导。
+| 剪贴板 | 截图 |
+| --- | --- |
+| 文本、链接、图片、文件自动分类 | 窗口识别与自由框选 |
+| 搜索、收藏、删除与键盘导航 | 矩形、箭头、画笔、文字与马赛克 |
+| 重复内容自动置顶，不重复保存 | 原始像素 PNG 输出 |
+| 恢复原应用并直接粘贴 | 本地 OCR 与二维码/条形码识别 |
+| 面板位置记忆与多屏适配 | OCR 图片/文字分栏与比例记忆 |
+| 最多保留 500 条或 30 天 | 结果窗口可被下一次截图自动替换 |
 
-如果需要安装到“应用程序”并让辅助功能权限在本地更新之间保持稳定，请运行：
+### 设计原则
+
+- **原生轻量**：SwiftUI、AppKit、SwiftData、Vision 与 ScreenCaptureKit，无第三方运行时依赖。
+- **本地优先**：不联网、不上传剪贴板、截图、OCR 或扫码内容。
+- **随时可控**：支持暂停记录、清空历史、关闭开机启动和修改全局快捷键。
+- **权限降级**：未授予辅助功能权限时仍可复制内容，只是不自动模拟 `Command+V`。
+
+## 快速开始
+
+### 1. 打开工程
+
+使用 Xcode 打开 `PasteBox.xcodeproj`，选择 `PasteBox` Scheme 和 `My Mac`。
+
+成功标志：Xcode 左上角可以看到运行按钮，构建产物名称为 `Cliploom`。
+工程继续保留历史 Scheme、模块名和 Bundle ID，以兼容已有数据与测试。
+
+### 2. 运行应用
+
+按 `Command+R`，或者运行本地安装脚本：
 
 ```bash
 zsh Scripts/install-local.sh
 ```
 
-成功标志：`/Applications/Cliploom.app` 被更新并自动打开。
+成功标志：菜单栏出现 Cliploom 图标，`/Applications/Cliploom.app` 已安装并打开。
 
-注意：本地脚本使用临时开发签名，只适合当前 Mac 调试，不能作为正式分发包。
-macOS 可能在更新后再次确认录屏或辅助功能权限。
+本地脚本使用稳定的临时签名，适合当前 Mac 开发调试，但不能替代正式的
+Developer ID 签名与 Apple 公证。
 
-### 第 3 步：授予直接粘贴权限
+### 3. 验证剪贴板
 
-1. 在引导页点击“请求权限”。
-2. 如果系统没有自动勾选，点击“打开系统设置”。
-3. 在“隐私与安全性 > 辅助功能”中允许 Cliploom。
-4. 回到 Cliploom 点击“刷新状态”。
+1. 在任意应用复制一段文字。
+2. 等待不超过 1 秒，按 `Option+V`。
+3. 用方向键选择记录，按回车。
 
-成功标志：引导页显示“已授权”。
+成功标志：最新内容位于第一条，并粘贴回先前使用的应用。
 
-没有授权时仍可使用历史记录，但选择内容后只会复制，需要手动按 `Command+V`。
-
-### 第 4 步：测试核心功能
-
-1. 在任意应用复制一段文本。
-2. 等待不超过 1 秒。
-3. 按 `Option+V`。
-4. 用方向键选择记录，按回车。
-
-成功标志：Cliploom 浮层出现在记忆的位置，刚复制的内容位于第一条，并粘贴回原应用。
-
-### 第 5 步：使用截图
+### 4. 验证截图
 
 1. 按 `Option+A`。
-2. 首次使用时，在“隐私与安全性 > 屏幕与系统音频录制”中允许 Cliploom。
-3. 再按一次 `Option+A`，单击窗口或拖动框选区域。
-4. 使用底部工具栏标注、马赛克、OCR、扫码或保存；按回车也可直接完成。
+2. 单击识别到的窗口，或拖动框选区域。
+3. 直接回车完成，或使用工具栏标注、OCR、扫码和保存。
 
-成功标志：截图被复制到系统剪贴板，并自动出现在 Cliploom 的“图片”分类中。
+成功标志：PNG 已进入系统剪贴板，并出现在 Cliploom 的“图片”分类中。
+点击 OCR 或扫码后，截图层会隐藏，只保留独立结果窗口。
 
-点击 OCR 或扫码后，截图层会立即隐藏，只显示独立结果窗口；关闭结果窗口即可结束本次截图。
+## 权限说明
 
-## 数据位置
+| 权限 | 用途 | 未授权时 |
+| --- | --- | --- |
+| 辅助功能 | 恢复目标应用并模拟 `Command+V` | 内容只复制到剪贴板 |
+| 屏幕与系统音频录制 | 捕获屏幕与窗口 | 无法进入截图层 |
 
-- SwiftData 历史库：由 macOS 根据原 Bundle ID 保存，改名后继续复用。
-- 图片缓存：`~/Library/Application Support/PasteBox/Images`，该兼容目录不会自动迁移或删除。
-- 文件记录只保存原文件路径，删除记录不会删除原文件。
+在“系统设置 > 隐私与安全性”中允许 Cliploom 后，返回应用刷新状态即可。
+开发阶段如果应用签名身份发生变化，macOS 可能再次确认权限；正式分发必须使用固定
+Bundle ID、Developer ID Application 签名并完成 Apple 公证。
+
+## 数据与隐私
+
+- SwiftData 历史库由 macOS 按现有 Bundle ID 管理。
+- 图片缓存位于 `~/Library/Application Support/PasteBox/Images`。
+- 文件记录只保存原路径，Cliploom 不复制、移动或删除用户原文件。
 - 未收藏记录最多保留 500 条或 30 天，收藏记录不会自动清理。
+- 所有识别和存储都在本机完成，项目不包含云同步、遥测或自动上传。
 
-## 构建和测试
+## 项目结构
 
-计划开发 Windows 版本时，请先阅读 [WINDOWS_PORT.md](WINDOWS_PORT.md)。其中包含平台 API
-替代关系、推荐技术栈、开发顺序和验收基线，方便其他 Agent 从当前仓库继续开发。
-
-本机更新请统一运行 `./Scripts/install-local.sh`。脚本会固定 Bundle ID 和指定要求，
-减少普通临时签名的身份漂移，但无法替代 Developer ID 正式签名。
-
-## 正式分发
-
-分享给其他用户时，必须使用固定的 Apple Developer ID Application 证书签名并通过
-Apple 公证。否则用户会看到 Gatekeeper 警告，更新后也可能需要重新授权录屏或辅助功能。
-
-1. 在 Apple Developer 账号中创建并安装 Developer ID Application 证书。
-2. 使用 `xcrun notarytool store-credentials` 保存公证凭据。
-3. 设置签名身份和公证配置后运行发布脚本：
-
-```bash
-DEVELOPER_ID_APPLICATION='Developer ID Application: Your Name (TEAMID)' \
-NOTARY_KEYCHAIN_PROFILE='cliploom-notary' \
-CLIPLOOM_BUNDLE_ID='你的固定反向域名.BundleID' \
-./Scripts/release-macos.sh
+```text
+PasteBox/
+├── App/          应用生命周期与菜单栏协调
+├── Models/       SwiftData 剪贴板模型
+├── Services/     监听、存储、热键、权限与粘贴
+├── Screenshot/   捕获、选区、标注、OCR 与扫码
+└── UI/           剪贴板面板、设置与原生视觉组件
+PasteBoxTests/    分类、存储、截图、OCR、扫码与热键测试
+Scripts/          本地安装和正式签名发布脚本
 ```
 
-成功标志：生成 `build/release/Cliploom-macOS.zip`，且脚本中的签名验证、公证、
-Staple 和 Gatekeeper 检查全部通过。Bundle ID 一旦发布就不要再修改。
+## 开发与测试
 
-下面的命令只会编译工程并在 `/tmp` 中生成构建缓存，不会修改系统权限：
+运行核心测试：
 
 ```bash
 xcodebuild \
@@ -108,3 +133,32 @@ xcodebuild \
 ```
 
 成功标志：终端最后显示 `** TEST SUCCEEDED **`。
+
+最低系统版本为 macOS 14，当前版本为 `0.1.0 Preview`。版本变化记录见
+[CHANGELOG.md](CHANGELOG.md)。
+
+## 发布
+
+首个 GitHub Release 是源码预览版。当前仓库没有可用于公开分发的 Developer ID
+证书，因此不会附带未经公证却伪装成正式版本的安装包。
+
+查看 [Cliploom 0.1.0 Preview](https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.0)。
+
+正式发布前，配置固定 Bundle ID、Developer ID Application 证书和 `notarytool`
+凭据，然后运行：
+
+```bash
+DEVELOPER_ID_APPLICATION='Developer ID Application: Your Name (TEAMID)' \
+NOTARY_KEYCHAIN_PROFILE='cliploom-notary' \
+CLIPLOOM_BUNDLE_ID='你的固定反向域名.BundleID' \
+./Scripts/release-macos.sh
+```
+
+成功标志：生成 `build/release/Cliploom-macOS.zip`，且签名、公证、Staple 与
+Gatekeeper 检查全部通过。
+
+## Windows 版本
+
+Windows 端尚未开始实现。其他开发者或 Agent 可以直接从
+[WINDOWS_PORT.md](WINDOWS_PORT.md) 接力，其中列出了行为基线、Windows API 映射、
+模块接口、开发阶段和验收清单。目标不是逐行翻译 Swift，而是保持产品体验一致。

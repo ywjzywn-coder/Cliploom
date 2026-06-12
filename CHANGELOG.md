@@ -1,0 +1,32 @@
+# Changelog
+
+All notable changes to Cliploom are documented here.
+
+## [0.1.0] - 2026-06-12
+
+### Added
+
+- Native macOS menu bar clipboard history for text, links, images, and files.
+- Search, category filters, favorites, deletion, keyboard navigation, and panel
+  position memory.
+- Configurable `Option+V` clipboard and `Option+A` screenshot hotkeys.
+- Window-aware and free-selection screenshots at native pixel resolution.
+- Rectangle, arrow, pen, text, mosaic, undo, save, and clipboard output tools.
+- Local OCR with image/text split view and remembered divider ratio.
+- Local QR/barcode recognition with safe copy and HTTP/HTTPS open actions.
+- Chinese and English localization.
+- Local install, Developer ID signing, notarization, and packaging scripts.
+- Windows port handoff document for follow-up implementation.
+
+### Privacy
+
+- Clipboard history, screenshots, OCR, and barcode recognition stay local.
+- Cliploom contains no cloud sync, telemetry, or automatic content upload.
+
+### Distribution
+
+- This first GitHub release is a source preview.
+- A signed and notarized binary is not attached because the repository owner
+  has not configured a Developer ID Application certificate in this environment.
+
+[0.1.0]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.0
