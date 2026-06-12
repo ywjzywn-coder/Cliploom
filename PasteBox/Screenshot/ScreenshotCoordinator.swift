@@ -1,0 +1,424 @@
+import AppKit
+import CoreGraphics
+import Foundation
+import ScreenCaptureKit
+
+@MainActor
+final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
+    private let monitor: ClipboardMonitor
+    private let store: ClipboardStore
+    private let permissionManager: ScreenCapturePermissionManager
+    private let pasteboard: NSPasteboard
+    private let showStatus: (String) -> Void
+    private var overlayController: ScreenshotOverlayController?
+    private var isCapturing = false
+    private var cachedShareableContent: SCShareableContent?
+    private var shareableContentLoadedAt: Date?
+    private var shareableContentTask: Task<SCShareableContent, Error>?
+    private var captureTargets: [CGDirectDisplayID: CaptureTarget] = [:]
+    private var warmupTask: Task<Void, Never>?
+    private var textRecognitionTask: Task<Void, Never>?
+    private var barcodeScanTask: Task<Void, Never>?
+
+    private static let shareableContentCacheLifetime: TimeInterval = 300
+
+    init(
+        monitor: ClipboardMonitor,
+        store: ClipboardStore,
+        permissionManager: ScreenCapturePermissionManager,
+        pasteboard: NSPasteboard = .general,
+        showStatus: @escaping (String) -> Void
+    ) {
+        self.monitor = monitor
+        self.store = store
+        self.permissionManager = permissionManager
+        self.pasteboard = pasteboard
+        self.showStatus = showStatus
+    }
+
+    func prewarm() {
+        TextRecognizer.prewarm()
+        guard permissionManager.refresh() else { return }
+        guard warmupTask == nil else { return }
+        warmupTask = Task(priority: .utility) { [weak self] in
+            guard let self else { return }
+            defer { warmupTask = nil }
+            guard !Task.isCancelled,
+                  let screen = NSScreen.main,
+                  let target = try? await captureTarget(for: screen),
+                  !Task.isCancelled
+            else { return }
+            _ = try? await SCScreenshotManager.captureImage(
+                contentFilter: target.filter,
+                configuration: target.configuration
+            )
+        }
+    }
+
+    func refreshWarmState() {
+        warmupTask?.cancel()
+        warmupTask = nil
+        invalidateShareableContent()
+        prewarm()
+    }
+
+    func start() {
+        guard !isCapturing, overlayController == nil else { return }
+        guard permissionManager.refresh() else {
+            permissionManager.requestPermission()
+            showStatus(String(localized: "screenshot.permission.required"))
+            return
+        }
+        guard let screen = screenUnderMouse() else {
+            showStatus(String(localized: "screenshot.capture.failed"))
+            return
+        }
+
+        isCapturing = true
+        Task {
+            do {
+                async let image = capture(screen: screen)
+                let windows = capturableWindows(on: screen)
+                let session = ScreenshotSession(
+                    image: try await image,
+                    screen: screen,
+                    windows: windows
+                )
+                let controller = ScreenshotOverlayController(session: session)
+                controller.delegate = self
+                overlayController = controller
+                isCapturing = false
+                controller.show()
+            } catch {
+                isCapturing = false
+                showStatus(String(localized: "screenshot.capture.failed"))
+            }
+        }
+    }
+
+    func screenshotOverlayDidCancel(_ controller: ScreenshotOverlayController) {
+        finishSession()
+    }
+
+    func screenshotOverlay(
+        _ controller: ScreenshotOverlayController,
+        didFinishWith data: Data
+    ) {
+        guard commitImage(data) else {
+            showStatus(String(localized: "screenshot.copy.failed"))
+            return
+        }
+        finishSession()
+        showStatus(String(localized: "screenshot.copied"))
+    }
+
+    func screenshotOverlay(
+        _ controller: ScreenshotOverlayController,
+        didRequestSave data: Data
+    ) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "Cliploom-\(Self.fileTimestamp()).png"
+        let response = panel.runModal()
+
+        guard response == .OK, let url = panel.url else {
+            return
+        }
+        do {
+            try data.write(to: url, options: .atomic)
+            guard commitImage(data) else {
+                showStatus(String(localized: "screenshot.copy.failed"))
+                return
+            }
+            finishSession()
+            showStatus(String(localized: "screenshot.saved"))
+        } catch {
+            showStatus(String(localized: "screenshot.save.failed"))
+        }
+    }
+
+    func screenshotOverlay(
+        _ controller: ScreenshotOverlayController,
+        didRequestScan image: CGImage
+    ) {
+        guard barcodeScanTask == nil else { return }
+        barcodeScanTask = Task { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            defer { barcodeScanTask = nil }
+            do {
+                let results = try await BarcodeScanner.scan(cgImage: image)
+                guard !Task.isCancelled, overlayController === controller else {
+                    return
+                }
+                controller.showBarcodeResults(results)
+            } catch {
+                guard !Task.isCancelled, overlayController === controller else {
+                    return
+                }
+                controller.showBarcodeMessage(
+                    String(localized: "screenshot.scan.failed")
+                )
+            }
+        }
+    }
+
+    func screenshotOverlay(
+        _ controller: ScreenshotOverlayController,
+        didRequestRecognizeText image: CGImage
+    ) {
+        guard textRecognitionTask == nil else { return }
+        textRecognitionTask = Task { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            defer { textRecognitionTask = nil }
+            do {
+                let text = try await TextRecognizer.recognize(cgImage: image)
+                guard !Task.isCancelled, overlayController === controller else {
+                    return
+                }
+                controller.showRecognizedText(text)
+            } catch {
+                guard !Task.isCancelled, overlayController === controller else {
+                    return
+                }
+                controller.showTextRecognitionMessage(
+                    String(localized: "screenshot.ocr.failed")
+                )
+            }
+        }
+    }
+
+    func screenshotOverlay(
+        _ controller: ScreenshotOverlayController,
+        didRequestCopyRecognizedText text: String
+    ) {
+        commitRecognizedText(
+            text,
+            successMessage: String(localized: "screenshot.ocr.copied")
+        )
+    }
+
+    func screenshotOverlay(
+        _ controller: ScreenshotOverlayController,
+        didRequestCopyBarcode result: BarcodeResult
+    ) {
+        commitBarcodeText(result)
+    }
+
+    func screenshotOverlay(
+        _ controller: ScreenshotOverlayController,
+        didRequestOpenBarcode result: BarcodeResult
+    ) {
+        guard let url = result.webURL else {
+            showStatus(String(localized: "screenshot.scan.notLink"))
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func capture(screen: NSScreen) async throws -> CGImage {
+        do {
+            let target = try await captureTarget(for: screen)
+            return try await capture(target: target)
+        } catch {
+            invalidateShareableContent()
+            let refreshedTarget = try await captureTarget(for: screen)
+            return try await capture(target: refreshedTarget)
+        }
+    }
+
+    private func captureTarget(for screen: NSScreen) async throws -> CaptureTarget {
+        guard let displayID = displayID(for: screen) else {
+            throw ScreenshotError.displayUnavailable
+        }
+        if let target = captureTargets[displayID] {
+            return target
+        }
+
+        let content = try await shareableContent()
+        guard let display = content.displays.first(
+            where: { $0.displayID == displayID }
+        ) else {
+            throw ScreenshotError.displayUnavailable
+        }
+
+        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let configuration = SCStreamConfiguration()
+        configuration.width = display.width
+        configuration.height = display.height
+        configuration.showsCursor = false
+        configuration.capturesAudio = false
+        configuration.queueDepth = 1
+        configuration.pixelFormat = kCVPixelFormatType_32BGRA
+        let target = CaptureTarget(
+            filter: filter,
+            configuration: configuration
+        )
+        captureTargets[displayID] = target
+        return target
+    }
+
+    private func capture(target: CaptureTarget) async throws -> CGImage {
+        return try await SCScreenshotManager.captureImage(
+            contentFilter: target.filter,
+            configuration: target.configuration
+        )
+    }
+
+    private func shareableContent() async throws -> SCShareableContent {
+        if let cachedShareableContent,
+           let shareableContentLoadedAt,
+           Date().timeIntervalSince(shareableContentLoadedAt)
+                < Self.shareableContentCacheLifetime {
+            return cachedShareableContent
+        }
+
+        if let shareableContentTask {
+            return try await shareableContentTask.value
+        }
+
+        let task = Task {
+            try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: true
+            )
+        }
+        shareableContentTask = task
+
+        do {
+            let content = try await task.value
+            cachedShareableContent = content
+            shareableContentLoadedAt = Date()
+            shareableContentTask = nil
+            return content
+        } catch {
+            shareableContentTask = nil
+            throw error
+        }
+    }
+
+    private func invalidateShareableContent() {
+        cachedShareableContent = nil
+        shareableContentLoadedAt = nil
+        captureTargets.removeAll()
+    }
+
+    private func screenUnderMouse() -> NSScreen? {
+        let location = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(location, $0.frame, false) }
+            ?? NSScreen.main
+    }
+
+    private func displayID(for screen: NSScreen) -> CGDirectDisplayID? {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        return (screen.deviceDescription[key] as? NSNumber).map {
+            CGDirectDisplayID($0.uint32Value)
+        }
+    }
+
+    private func capturableWindows(on screen: NSScreen) -> [CapturableWindow] {
+        guard let displayID = displayID(for: screen),
+              let rawWindows = CGWindowListCopyWindowInfo(
+                [.optionOnScreenOnly, .excludeDesktopElements],
+                kCGNullWindowID
+              ) as? [[CFString: Any]]
+        else { return [] }
+
+        let displayBounds = CGDisplayBounds(displayID)
+        let ownProcessID = ProcessInfo.processInfo.processIdentifier
+        return rawWindows.compactMap { info in
+            guard let boundsDictionary = info[kCGWindowBounds] as? [String: Any],
+                  let globalFrame = CGRect(
+                    dictionaryRepresentation: boundsDictionary as CFDictionary
+                  ),
+                  let number = info[kCGWindowNumber] as? NSNumber,
+                  let layer = info[kCGWindowLayer] as? NSNumber,
+                  layer.intValue == 0,
+                  let alpha = info[kCGWindowAlpha] as? NSNumber,
+                  alpha.doubleValue > 0.02,
+                  globalFrame.width >= 40,
+                  globalFrame.height >= 30,
+                  globalFrame.intersects(displayBounds)
+            else { return nil }
+
+            let ownerName = info[kCGWindowOwnerName] as? String ?? ""
+            let ownerPID = (info[kCGWindowOwnerPID] as? NSNumber)?.int32Value
+            guard ownerPID != ownProcessID,
+                  ownerName != "Window Server",
+                  ownerName != "Dock"
+            else { return nil }
+
+            let localFrame = ScreenshotCoordinateMapper.localWindowFrame(
+                globalFrame: globalFrame,
+                displayBounds: displayBounds,
+                screenSize: screen.frame.size
+            )
+            guard localFrame.width >= 40, localFrame.height >= 30 else { return nil }
+            return CapturableWindow(
+                windowID: CGWindowID(number.uint32Value),
+                ownerName: ownerName,
+                frame: localFrame,
+                layer: layer.intValue
+            )
+        }
+    }
+
+    private func commitImage(_ data: Data) -> Bool {
+        pasteboard.clearContents()
+        guard pasteboard.setData(data, forType: .png) else { return false }
+        monitor.ignoreCurrentChange()
+        do {
+            _ = try store.save(.image(data))
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func commitBarcodeText(_ result: BarcodeResult) {
+        commitRecognizedText(
+            result.payload,
+            successMessage: String(localized: "screenshot.scan.copied")
+        )
+    }
+
+    private func commitRecognizedText(
+        _ text: String,
+        successMessage: String
+    ) {
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            showStatus(String(localized: "status.copy.failed"))
+            return
+        }
+        monitor.ignoreCurrentChange()
+        _ = try? store.save(
+            .text(text, isLink: ClipboardPayload.isWebLink(text))
+        )
+        showStatus(successMessage)
+    }
+
+    private func finishSession() {
+        textRecognitionTask?.cancel()
+        textRecognitionTask = nil
+        barcodeScanTask?.cancel()
+        barcodeScanTask = nil
+        overlayController?.close()
+        overlayController = nil
+    }
+
+    private static func fileTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        return formatter.string(from: .now)
+    }
+}
+
+private enum ScreenshotError: Error {
+    case displayUnavailable
+}
+
+private struct CaptureTarget {
+    let filter: SCContentFilter
+    let configuration: SCStreamConfiguration
+}
