@@ -192,7 +192,7 @@ final class ScreenshotOverlayController: NSWindowController, NSWindowDelegate {
         }
         dismissResultPanel()
         let view = ScreenshotOCRPanelView(
-            frame: CGRect(x: 0, y: 0, width: 920, height: 560)
+            frame: CGRect(origin: .zero, size: session.screen.visibleFrame.size)
         )
         view.onRetry = { [weak self] in
             self?.requestTextRecognition()
@@ -266,17 +266,15 @@ final class ScreenshotOverlayController: NSWindowController, NSWindowDelegate {
         panel.isMovableByWindowBackground = true
 
         let visibleFrame = session.screen.visibleFrame.insetBy(dx: 24, dy: 24)
-        let minimumWidth: CGFloat = contentView is ScreenshotOCRPanelView ? 640 : 360
-        panel.minSize = NSSize(
-            width: min(minimumWidth, visibleFrame.width),
-            height: min(420, visibleFrame.height)
-        )
         panel.maxSize = visibleFrame.size
         panel.contentMaxSize = visibleFrame.size
-        let fittedSize = NSSize(
-            width: min(size.width, visibleFrame.width),
-            height: min(size.height, visibleFrame.height)
-        )
+        let isOCRPanel = contentView is ScreenshotOCRPanelView
+        let fittedSize = isOCRPanel
+            ? visibleFrame.size
+            : NSSize(
+                width: min(size.width, visibleFrame.width),
+                height: min(size.height, visibleFrame.height)
+            )
         panel.setContentSize(fittedSize)
         panel.setFrameOrigin(
             CGPoint(
