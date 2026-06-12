@@ -9,6 +9,67 @@ private final class ScaledPreviewImageView: NSImageView {
     }
 }
 
+private final class RememberingSplitView: NSSplitView, NSSplitViewDelegate {
+    private static let fractionKey = "screenshot.ocr.previewFraction"
+    private static let defaultFraction: CGFloat = 0.68
+    private static let minimumFraction: CGFloat = 0.35
+    private static let maximumFraction: CGFloat = 0.78
+
+    private var hasRestoredFraction = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isVertical = true
+        dividerStyle = .thin
+        delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        guard !hasRestoredFraction, subviews.count == 2, bounds.width > 0 else {
+            return
+        }
+        hasRestoredFraction = true
+        let stored = UserDefaults.standard.object(forKey: Self.fractionKey) as? Double
+        let fraction = Self.clampedFraction(
+            CGFloat(stored ?? Double(Self.defaultFraction))
+        )
+        setPosition(usableWidth * fraction, ofDividerAt: 0)
+    }
+
+    func splitView(
+        _ splitView: NSSplitView,
+        constrainSplitPosition proposedPosition: CGFloat,
+        ofSubviewAt dividerIndex: Int
+    ) -> CGFloat {
+        min(
+            max(proposedPosition, usableWidth * Self.minimumFraction),
+            usableWidth * Self.maximumFraction
+        )
+    }
+
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard hasRestoredFraction, subviews.count == 2, usableWidth > 0 else {
+            return
+        }
+        let fraction = Self.clampedFraction(subviews[0].frame.width / usableWidth)
+        UserDefaults.standard.set(Double(fraction), forKey: Self.fractionKey)
+    }
+
+    private var usableWidth: CGFloat {
+        max(bounds.width - dividerThickness, 1)
+    }
+
+    private static func clampedFraction(_ fraction: CGFloat) -> CGFloat {
+        min(max(fraction, minimumFraction), maximumFraction)
+    }
+}
+
 @MainActor
 final class ScreenshotOCRPanelView: NSVisualEffectView, NSTextViewDelegate {
     var onRetry: (() -> Void)?
@@ -200,18 +261,9 @@ final class ScreenshotOCRPanelView: NSVisualEffectView, NSTextViewDelegate {
         resultColumn.alignment = .leading
         resultColumn.spacing = 8
 
-        let divider = NSBox()
-        divider.boxType = .separator
-
-        let body = NSStackView(views: [
-            previewColumn,
-            divider,
-            resultColumn
-        ])
-        body.orientation = .horizontal
-        body.alignment = .top
-        body.spacing = 14
-        body.distribution = .fill
+        let body = RememberingSplitView()
+        body.addArrangedSubview(previewColumn)
+        body.addArrangedSubview(resultColumn)
 
         countLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         countLabel.textColor = .tertiaryLabelColor
@@ -259,15 +311,9 @@ final class ScreenshotOCRPanelView: NSVisualEffectView, NSTextViewDelegate {
             body.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
             body.heightAnchor.constraint(greaterThanOrEqualToConstant: 340),
             footer.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
-            previewColumn.widthAnchor.constraint(
-                equalTo: body.widthAnchor,
-                multiplier: 0.62,
-                constant: -14
-            ),
             previewImageView.widthAnchor.constraint(equalTo: previewColumn.widthAnchor),
             previewImageView.heightAnchor.constraint(equalTo: body.heightAnchor, constant: -20),
-            divider.widthAnchor.constraint(equalToConstant: 1),
-            divider.heightAnchor.constraint(equalTo: body.heightAnchor),
+            previewColumn.heightAnchor.constraint(equalTo: body.heightAnchor),
             resultColumn.heightAnchor.constraint(equalTo: body.heightAnchor),
             statusRow.widthAnchor.constraint(equalTo: resultColumn.widthAnchor),
             scrollView.widthAnchor.constraint(equalTo: resultColumn.widthAnchor),
