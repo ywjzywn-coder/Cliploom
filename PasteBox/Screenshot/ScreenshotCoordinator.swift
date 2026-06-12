@@ -77,27 +77,27 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
     }
 
     func start() {
-        let canUsePreTriggerFrame = overlayController == nil && !isCapturing
-        replaceActiveSession()
         guard permissionManager.refresh() else {
+            replaceActiveSession()
             permissionManager.requestPermission()
             showStatus(String(localized: "screenshot.permission.required"))
             return
         }
         guard let screen = screenUnderMouse() else {
+            replaceActiveSession()
             showStatus(String(localized: "screenshot.capture.failed"))
             return
         }
-        let cachedImage: CGImage?
-        if canUsePreTriggerFrame,
-           let displayID = displayID(for: screen) {
-            cachedImage = frameCache.image(
+
+        // Read the frame before closing an existing OCR or barcode result window.
+        // The next overlay can then show exactly what was visible when the hotkey fired.
+        let cachedImage = displayID(for: screen).flatMap { displayID in
+            frameCache.image(
                 for: displayID,
                 maximumAge: Self.frameCacheMaximumAge
             )
-        } else {
-            cachedImage = nil
         }
+        replaceActiveSession()
 
         isCapturing = true
         captureGeneration &+= 1

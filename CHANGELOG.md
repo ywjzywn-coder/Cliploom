@@ -14,6 +14,8 @@ All notable changes to Cliploom are documented here.
   a stronger high-contrast selection border in both light and dark content.
 - Screenshot hotkeys now use a recent in-memory ScreenCaptureKit frame when
   available, preserving QR-code popovers that close as soon as a key is pressed.
+- Starting another screenshot from an OCR or QR result window now snapshots the
+  visible result first, then closes the previous session.
 
 ## [0.1.1] - 2026-06-12
 
