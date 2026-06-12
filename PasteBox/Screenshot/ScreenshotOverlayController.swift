@@ -1,6 +1,11 @@
 import AppKit
 import Foundation
 
+final class ScreenshotPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 @MainActor
 protocol ScreenshotOverlayControllerDelegate: AnyObject {
     func screenshotOverlayDidCancel(_ controller: ScreenshotOverlayController)
@@ -42,11 +47,13 @@ final class ScreenshotOverlayController: NSWindowController {
     private var resultPanel: NSPanel?
     private var ocrResultView: ScreenshotOCRPanelView?
     private var barcodeResultView: ScreenshotBarcodePanelView?
+    private var keyMonitor: Any?
+    private var isCancelling = false
 
     init(session: ScreenshotSession) {
         self.session = session
         overlayView = ScreenshotOverlayView(frame: CGRect(origin: .zero, size: session.screen.frame.size))
-        let panel = NSPanel(
+        let panel = ScreenshotPanel(
             contentRect: session.screen.frame,
             styleMask: [.borderless],
             backing: .buffered,
@@ -75,8 +82,7 @@ final class ScreenshotOverlayController: NSWindowController {
 
         overlayView.session = session
         overlayView.onCancel = { [weak self] in
-            guard let self else { return }
-            self.delegate?.screenshotOverlayDidCancel(self)
+            self?.cancelSession()
         }
         overlayView.onFinish = { [weak self] in
             guard let self, let data = self.renderPNG() else { return }
@@ -121,12 +127,14 @@ final class ScreenshotOverlayController: NSWindowController {
     }
 
     func show() {
+        installKeyMonitor()
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         window?.makeFirstResponder(overlayView)
     }
 
     override func close() {
+        removeKeyMonitor()
         window?.orderOut(nil)
         resultPanel?.orderOut(nil)
         resultPanel = nil
@@ -249,7 +257,7 @@ final class ScreenshotOverlayController: NSWindowController {
     private func presentResultPanel(contentView: NSView) {
         window?.orderOut(nil)
         let size = contentView.frame.size
-        let panel = NSPanel(
+        let panel = ScreenshotPanel(
             contentRect: CGRect(origin: .zero, size: size),
             styleMask: [.borderless, .resizable],
             backing: .buffered,
@@ -281,6 +289,35 @@ final class ScreenshotOverlayController: NSWindowController {
         resultPanel = panel
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    private func installKeyMonitor() {
+        removeKeyMonitor()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            guard let self,
+                  event.keyCode == 53,
+                  self.window?.isVisible == true
+                    || self.resultPanel?.isVisible == true
+            else {
+                return event
+            }
+            self.cancelSession()
+            return nil
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+    }
+
+    private func cancelSession() {
+        guard !isCancelling else { return }
+        isCancelling = true
+        delegate?.screenshotOverlayDidCancel(self)
     }
 
     private func dismissResultPanel() {
@@ -561,6 +598,10 @@ final class ScreenshotOverlayView: NSView {
                 super.keyDown(with: event)
             }
         }
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        cancelScreenshot()
     }
 
     private func cancelScreenshot() {

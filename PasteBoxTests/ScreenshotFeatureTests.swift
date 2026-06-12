@@ -54,6 +54,18 @@ final class ScreenshotToolbarGeometryTests: XCTestCase {
 
 @MainActor
 final class ScreenshotOverlayInputTests: XCTestCase {
+    func testScreenshotPanelCanReceiveKeyboardFocus() {
+        let panel = ScreenshotPanel(
+            contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+
+        XCTAssertTrue(panel.canBecomeKey)
+        XCTAssertTrue(panel.canBecomeMain)
+    }
+
     func testRightClickCancelsScreenshot() throws {
         let view = ScreenshotOverlayView(
             frame: CGRect(x: 0, y: 0, width: 800, height: 600)
@@ -101,6 +113,18 @@ final class ScreenshotOverlayInputTests: XCTestCase {
         )
 
         view.keyDown(with: event)
+
+        XCTAssertEqual(cancellationCount, 1)
+    }
+
+    func testCancelOperationCancelsScreenshot() {
+        let view = ScreenshotOverlayView(
+            frame: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        var cancellationCount = 0
+        view.onCancel = { cancellationCount += 1 }
+
+        view.cancelOperation(nil)
 
         XCTAssertEqual(cancellationCount, 1)
     }
