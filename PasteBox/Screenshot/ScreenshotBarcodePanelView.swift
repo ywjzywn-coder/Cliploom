@@ -43,7 +43,9 @@ final class ScreenshotBarcodePanelView: NSVisualEffectView {
         retryButton.isEnabled = true
 
         for result in results {
-            resultsStack.addArrangedSubview(resultRow(for: result))
+            let row = resultRow(for: result)
+            resultsStack.addArrangedSubview(row)
+            row.widthAnchor.constraint(equalTo: resultsStack.widthAnchor).isActive = true
         }
     }
 
@@ -167,6 +169,9 @@ final class ScreenshotBarcodePanelView: NSVisualEffectView {
             scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 220),
             footer.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
             documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            documentView.heightAnchor.constraint(
+                greaterThanOrEqualTo: scrollView.contentView.heightAnchor
+            ),
             resultsStack.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
             resultsStack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
             resultsStack.topAnchor.constraint(equalTo: documentView.topAnchor),
@@ -228,7 +233,6 @@ final class ScreenshotBarcodePanelView: NSVisualEffectView {
             .withAlphaComponent(0.74).cgColor
         stack.layer?.borderWidth = 1
         stack.layer?.borderColor = NSColor.separatorColor.cgColor
-        stack.widthAnchor.constraint(equalTo: resultsStack.widthAnchor).isActive = true
         payloadLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20).isActive = true
         buttonRow.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20).isActive = true
         return stack

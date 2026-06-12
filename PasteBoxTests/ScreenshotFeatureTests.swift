@@ -147,6 +147,47 @@ final class BarcodeScannerTests: XCTestCase {
     }
 }
 
+@MainActor
+final class BarcodePanelTests: XCTestCase {
+    func testPanelCanDisplayResultsRepeatedly() {
+        let panel = ScreenshotBarcodePanelView(
+            frame: CGRect(x: 0, y: 0, width: 400, height: 500)
+        )
+        let window = NSWindow(
+            contentRect: panel.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = panel
+
+        let first = BarcodeResult(
+            symbology: "QR",
+            payload: "https://example.com/first",
+            boundingBox: CGRect(x: 0.1, y: 0.1, width: 0.4, height: 0.4)
+        )
+        let second = BarcodeResult(
+            symbology: "QR",
+            payload: "https://example.com/second",
+            boundingBox: CGRect(x: 0.2, y: 0.2, width: 0.4, height: 0.4)
+        )
+
+        panel.showResults([first])
+        panel.layoutSubtreeIfNeeded()
+        panel.showLoading()
+        panel.showResults([second])
+        panel.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(allText(in: panel).contains(second.payload))
+        XCTAssertFalse(allText(in: panel).contains(first.payload))
+    }
+
+    private func allText(in view: NSView) -> [String] {
+        let ownText = (view as? NSTextField).map { [$0.stringValue] } ?? []
+        return ownText + view.subviews.flatMap(allText)
+    }
+}
+
 final class TextRecognizerTests: XCTestCase {
     func testRecognizerReadsGeneratedText() async throws {
         let image = NSImage(size: NSSize(width: 640, height: 180))

@@ -21,6 +21,8 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
     private var warmupTask: Task<Void, Never>?
     private var textRecognitionTask: Task<Void, Never>?
     private var barcodeScanTask: Task<Void, Never>?
+    private var textRecognitionGeneration: UInt = 0
+    private var barcodeScanGeneration: UInt = 0
 
     private static let shareableContentCacheLifetime: TimeInterval = 300
 
@@ -156,18 +158,30 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         _ controller: ScreenshotOverlayController,
         didRequestScan image: CGImage
     ) {
-        guard barcodeScanTask == nil else { return }
+        barcodeScanGeneration &+= 1
+        let generation = barcodeScanGeneration
+        barcodeScanTask?.cancel()
         barcodeScanTask = Task { [weak self, weak controller] in
             guard let self, let controller else { return }
-            defer { barcodeScanTask = nil }
+            defer {
+                if barcodeScanGeneration == generation {
+                    barcodeScanTask = nil
+                }
+            }
             do {
                 let results = try await BarcodeScanner.scan(cgImage: image)
-                guard !Task.isCancelled, overlayController === controller else {
+                guard !Task.isCancelled,
+                      barcodeScanGeneration == generation,
+                      overlayController === controller
+                else {
                     return
                 }
                 controller.showBarcodeResults(results)
             } catch {
-                guard !Task.isCancelled, overlayController === controller else {
+                guard !Task.isCancelled,
+                      barcodeScanGeneration == generation,
+                      overlayController === controller
+                else {
                     return
                 }
                 controller.showBarcodeMessage(
@@ -181,18 +195,30 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         _ controller: ScreenshotOverlayController,
         didRequestRecognizeText image: CGImage
     ) {
-        guard textRecognitionTask == nil else { return }
+        textRecognitionGeneration &+= 1
+        let generation = textRecognitionGeneration
+        textRecognitionTask?.cancel()
         textRecognitionTask = Task { [weak self, weak controller] in
             guard let self, let controller else { return }
-            defer { textRecognitionTask = nil }
+            defer {
+                if textRecognitionGeneration == generation {
+                    textRecognitionTask = nil
+                }
+            }
             do {
                 let text = try await TextRecognizer.recognize(cgImage: image)
-                guard !Task.isCancelled, overlayController === controller else {
+                guard !Task.isCancelled,
+                      textRecognitionGeneration == generation,
+                      overlayController === controller
+                else {
                     return
                 }
                 controller.showRecognizedText(text)
             } catch {
-                guard !Task.isCancelled, overlayController === controller else {
+                guard !Task.isCancelled,
+                      textRecognitionGeneration == generation,
+                      overlayController === controller
+                else {
                     return
                 }
                 controller.showTextRecognitionMessage(
@@ -413,8 +439,10 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
     }
 
     private func finishSession() {
+        textRecognitionGeneration &+= 1
         textRecognitionTask?.cancel()
         textRecognitionTask = nil
+        barcodeScanGeneration &+= 1
         barcodeScanTask?.cancel()
         barcodeScanTask = nil
         overlayController?.close()

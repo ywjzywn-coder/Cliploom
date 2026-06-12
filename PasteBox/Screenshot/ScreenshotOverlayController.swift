@@ -35,7 +35,7 @@ protocol ScreenshotOverlayControllerDelegate: AnyObject {
 }
 
 @MainActor
-final class ScreenshotOverlayController: NSWindowController, NSWindowDelegate {
+final class ScreenshotOverlayController: NSWindowController {
     weak var delegate: ScreenshotOverlayControllerDelegate?
     let session: ScreenshotSession
     private let overlayView: ScreenshotOverlayView
@@ -127,19 +127,11 @@ final class ScreenshotOverlayController: NSWindowController, NSWindowDelegate {
     }
 
     override func close() {
-        resultPanel?.delegate = nil
         window?.orderOut(nil)
         resultPanel?.orderOut(nil)
         resultPanel = nil
         ocrResultView = nil
         barcodeResultView = nil
-    }
-
-    func windowDidResignKey(_ notification: Notification) {
-        guard let panel = notification.object as? NSPanel,
-              panel === resultPanel
-        else { return }
-        delegate?.screenshotOverlayDidCancel(self)
     }
 
     func setTextRecognitionInProgress(_ isInProgress: Bool) {
@@ -287,13 +279,11 @@ final class ScreenshotOverlayController: NSWindowController, NSWindowDelegate {
             )
         )
         resultPanel = panel
-        panel.delegate = self
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
 
     private func dismissResultPanel() {
-        resultPanel?.delegate = nil
         resultPanel?.orderOut(nil)
         resultPanel = nil
         ocrResultView = nil
