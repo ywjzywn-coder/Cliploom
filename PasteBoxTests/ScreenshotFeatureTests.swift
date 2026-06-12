@@ -52,6 +52,36 @@ final class ScreenshotToolbarGeometryTests: XCTestCase {
     }
 }
 
+final class OCRPanelGeometryTests: XCTestCase {
+    func testSmallSelectionProducesCompactPanel() {
+        let size = OCRPanelGeometry.preferredSize(
+            selection: CGSize(width: 140, height: 80),
+            maximum: CGSize(width: 1400, height: 800)
+        )
+
+        XCTAssertEqual(size, CGSize(width: 712, height: 460))
+    }
+
+    func testPanelGrowsWithSelection() {
+        let size = OCRPanelGeometry.preferredSize(
+            selection: CGSize(width: 620, height: 420),
+            maximum: CGSize(width: 1400, height: 800)
+        )
+
+        XCTAssertEqual(size.width, 1014.4, accuracy: 0.001)
+        XCTAssertEqual(size.height, 536, accuracy: 0.001)
+    }
+
+    func testPanelNeverExceedsVisibleScreen() {
+        let size = OCRPanelGeometry.preferredSize(
+            selection: CGSize(width: 1800, height: 1200),
+            maximum: CGSize(width: 1200, height: 720)
+        )
+
+        XCTAssertEqual(size, CGSize(width: 1200, height: 720))
+    }
+}
+
 final class ScreenshotRendererTests: XCTestCase {
     func testRendererProducesExpectedPixelDimensionsWithAnnotations() throws {
         let source = try makeImage(width: 400, height: 300)

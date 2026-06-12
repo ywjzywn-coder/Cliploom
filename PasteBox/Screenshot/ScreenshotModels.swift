@@ -124,6 +124,21 @@ enum ScreenshotToolbarGeometry {
     }
 }
 
+enum OCRPanelGeometry {
+    static func preferredSize(
+        selection: CGSize,
+        maximum: CGSize
+    ) -> CGSize {
+        let previewWidth = max(360, selection.width)
+        let resultWidth = max(280, previewWidth * 0.52)
+
+        return CGSize(
+            width: min(previewWidth + resultWidth + 72, maximum.width),
+            height: min(max(460, selection.height + 116), maximum.height)
+        )
+    }
+}
+
 @MainActor
 final class ScreenshotSession: ObservableObject {
     let image: CGImage

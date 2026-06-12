@@ -191,8 +191,15 @@ final class ScreenshotOverlayController: NSWindowController, NSWindowDelegate {
             return ocrResultView
         }
         dismissResultPanel()
+        let maximumSize = session.screen.visibleFrame
+            .insetBy(dx: 24, dy: 24)
+            .size
+        let preferredSize = OCRPanelGeometry.preferredSize(
+            selection: session.selection?.standardized.size ?? .zero,
+            maximum: maximumSize
+        )
         let view = ScreenshotOCRPanelView(
-            frame: CGRect(origin: .zero, size: session.screen.visibleFrame.size)
+            frame: CGRect(origin: .zero, size: preferredSize)
         )
         view.onRetry = { [weak self] in
             self?.requestTextRecognition()
@@ -268,13 +275,10 @@ final class ScreenshotOverlayController: NSWindowController, NSWindowDelegate {
         let visibleFrame = session.screen.visibleFrame.insetBy(dx: 24, dy: 24)
         panel.maxSize = visibleFrame.size
         panel.contentMaxSize = visibleFrame.size
-        let isOCRPanel = contentView is ScreenshotOCRPanelView
-        let fittedSize = isOCRPanel
-            ? visibleFrame.size
-            : NSSize(
-                width: min(size.width, visibleFrame.width),
-                height: min(size.height, visibleFrame.height)
-            )
+        let fittedSize = NSSize(
+            width: min(size.width, visibleFrame.width),
+            height: min(size.height, visibleFrame.height)
+        )
         panel.setContentSize(fittedSize)
         panel.setFrameOrigin(
             CGPoint(

@@ -74,6 +74,9 @@ zsh Scripts/install-local.sh
 计划开发 Windows 版本时，请先阅读 [WINDOWS_PORT.md](WINDOWS_PORT.md)。其中包含平台 API
 替代关系、推荐技术栈、开发顺序和验收基线，方便其他 Agent 从当前仓库继续开发。
 
+本机更新请统一运行 `./Scripts/install-local.sh`。脚本会使用稳定的指定签名要求，
+避免普通临时签名因每次构建哈希变化而反复触发辅助功能或录屏授权。
+
 下面的命令只会编译工程并在 `/tmp` 中生成构建缓存，不会修改系统权限：
 
 ```bash
