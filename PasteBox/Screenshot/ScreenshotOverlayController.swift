@@ -440,11 +440,13 @@ final class ScreenshotOverlayView: NSView {
         NSGraphicsContext.restoreGraphicsState()
 
         guard let selection = session.selection else {
-            NSColor.black.withAlphaComponent(0.38).setFill()
-            bounds.fill()
             if let hovered = session.hoveredWindow {
+                drawDimmedOutside(hovered.frame, opacity: 0.34)
                 drawSelectionBorder(hovered.frame, color: .systemBlue, handles: false)
                 drawSizeLabel(for: hovered.frame)
+            } else {
+                NSColor.black.withAlphaComponent(0.28).setFill()
+                bounds.fill()
             }
             return
         }
@@ -454,7 +456,7 @@ final class ScreenshotOverlayView: NSView {
         if let draftAnnotation {
             drawAnnotations([draftAnnotation])
         }
-        drawSelectionBorder(selection, color: .white, handles: true)
+        drawSelectionBorder(selection, color: .systemBlue, handles: true)
         drawSizeLabel(for: selection)
         drawToolbar(near: selection)
     }
@@ -824,26 +826,44 @@ final class ScreenshotOverlayView: NSView {
         }
     }
 
-    private func drawDimmedOutside(_ selection: CGRect) {
+    private func drawDimmedOutside(_ selection: CGRect, opacity: CGFloat = 0.48) {
         let path = NSBezierPath(rect: bounds)
         path.appendRect(selection)
         path.windingRule = .evenOdd
-        NSColor.black.withAlphaComponent(0.48).setFill()
+        NSColor.black.withAlphaComponent(opacity).setFill()
         path.fill()
     }
 
     private func drawSelectionBorder(_ rect: CGRect, color: NSColor, handles: Bool) {
+        let borderRect = rect.insetBy(dx: 1, dy: 1)
+
+        NSColor.black.withAlphaComponent(0.82).setStroke()
+        let contrastPath = NSBezierPath(rect: borderRect)
+        contrastPath.lineWidth = 5
+        contrastPath.stroke()
+
         color.setStroke()
-        let path = NSBezierPath(rect: rect.insetBy(dx: 0.5, dy: 0.5))
-        path.lineWidth = 1.5
+        let path = NSBezierPath(rect: borderRect)
+        path.lineWidth = 3
         path.stroke()
+
+        NSColor.white.withAlphaComponent(0.9).setStroke()
+        let innerPath = NSBezierPath(rect: rect.insetBy(dx: 2.5, dy: 2.5))
+        innerPath.lineWidth = 1
+        innerPath.stroke()
 
         guard handles else { return }
         for (_, handleRect) in handleRects(for: rect) {
+            NSColor.black.withAlphaComponent(0.8).setStroke()
+            let contrastHandle = NSBezierPath(rect: handleRect.insetBy(dx: -1, dy: -1))
+            contrastHandle.lineWidth = 2
+            contrastHandle.stroke()
             NSColor.white.setFill()
             handleRect.fill()
             NSColor.systemBlue.setStroke()
-            NSBezierPath(rect: handleRect).stroke()
+            let handlePath = NSBezierPath(rect: handleRect)
+            handlePath.lineWidth = 1.5
+            handlePath.stroke()
         }
     }
 

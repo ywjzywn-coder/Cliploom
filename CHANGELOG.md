@@ -10,6 +10,8 @@ All notable changes to Cliploom are documented here.
   behavior from every overlay state.
 - Escape is captured at the screenshot session level so it still works when a
   child view or result window owns keyboard focus.
+- Automatically detected windows now remain at their original brightness, with
+  a stronger high-contrast selection border in both light and dark content.
 
 ## [0.1.1] - 2026-06-12
 
