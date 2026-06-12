@@ -35,7 +35,7 @@ protocol ScreenshotOverlayControllerDelegate: AnyObject {
 }
 
 @MainActor
-final class ScreenshotOverlayController: NSWindowController {
+final class ScreenshotOverlayController: NSWindowController, NSWindowDelegate {
     weak var delegate: ScreenshotOverlayControllerDelegate?
     let session: ScreenshotSession
     private let overlayView: ScreenshotOverlayView
@@ -127,11 +127,19 @@ final class ScreenshotOverlayController: NSWindowController {
     }
 
     override func close() {
+        resultPanel?.delegate = nil
         window?.orderOut(nil)
         resultPanel?.orderOut(nil)
         resultPanel = nil
         ocrResultView = nil
         barcodeResultView = nil
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        guard let panel = notification.object as? NSPanel,
+              panel === resultPanel
+        else { return }
+        delegate?.screenshotOverlayDidCancel(self)
     }
 
     func setTextRecognitionInProgress(_ isInProgress: Bool) {
@@ -256,15 +264,18 @@ final class ScreenshotOverlayController: NSWindowController {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.isMovableByWindowBackground = true
-        panel.minSize = NSSize(
-            width: contentView is ScreenshotOCRPanelView ? 720 : 360,
-            height: 460
-        )
 
-        let visibleFrame = session.screen.visibleFrame
+        let visibleFrame = session.screen.visibleFrame.insetBy(dx: 24, dy: 24)
+        let minimumWidth: CGFloat = contentView is ScreenshotOCRPanelView ? 640 : 360
+        panel.minSize = NSSize(
+            width: min(minimumWidth, visibleFrame.width),
+            height: min(420, visibleFrame.height)
+        )
+        panel.maxSize = visibleFrame.size
+        panel.contentMaxSize = visibleFrame.size
         let fittedSize = NSSize(
-            width: min(size.width, visibleFrame.width - 48),
-            height: min(size.height, visibleFrame.height - 48)
+            width: min(size.width, visibleFrame.width),
+            height: min(size.height, visibleFrame.height)
         )
         panel.setContentSize(fittedSize)
         panel.setFrameOrigin(
@@ -274,11 +285,13 @@ final class ScreenshotOverlayController: NSWindowController {
             )
         )
         resultPanel = panel
+        panel.delegate = self
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
 
     private func dismissResultPanel() {
+        resultPanel?.delegate = nil
         resultPanel?.orderOut(nil)
         resultPanel = nil
         ocrResultView = nil

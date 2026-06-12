@@ -1,5 +1,14 @@
 import AppKit
 
+private final class ScaledPreviewImageView: NSImageView {
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: NSView.noIntrinsicMetric
+        )
+    }
+}
+
 @MainActor
 final class ScreenshotOCRPanelView: NSVisualEffectView, NSTextViewDelegate {
     var onRetry: (() -> Void)?
@@ -8,7 +17,7 @@ final class ScreenshotOCRPanelView: NSVisualEffectView, NSTextViewDelegate {
 
     private let progressIndicator = NSProgressIndicator()
     private let statusLabel = NSTextField(labelWithString: "")
-    private let previewImageView = NSImageView()
+    private let previewImageView = ScaledPreviewImageView()
     private let textView = NSTextView()
     private let scrollView = NSScrollView()
     private let countLabel = NSTextField(labelWithString: "")
