@@ -2,6 +2,26 @@
 
 All notable changes to Cliploom are documented here.
 
+## [0.1.1] - 2026-06-12
+
+### Added
+
+- Universal macOS Developer Preview DMG for Apple Silicon and Intel Macs.
+- Beginner-friendly installation and permission guide.
+- Repeatable ad-hoc preview packaging script with SHA-256 checksum output.
+
+### Changed
+
+- README now focuses on product usage and consistent workflows across macOS and
+  the planned Windows port.
+- Preview builds use a stable application identifier and designated requirement
+  to improve permission continuity during in-place updates.
+
+### Distribution
+
+- The downloadable DMG is ad-hoc signed and is not notarized.
+- Users must explicitly allow the first launch through macOS security controls.
+
 ## [0.1.0] - 2026-06-12
 
 ### Added
@@ -29,4 +49,5 @@ All notable changes to Cliploom are documented here.
 - A signed and notarized binary is not attached because the repository owner
   has not configured a Developer ID Application certificate in this environment.
 
+[0.1.1]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.0
