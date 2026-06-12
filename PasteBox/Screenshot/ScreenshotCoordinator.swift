@@ -16,6 +16,8 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
     private var shareableContentLoadedAt: Date?
     private var shareableContentTask: Task<SCShareableContent, Error>?
     private var captureTargets: [CGDirectDisplayID: CaptureTarget] = [:]
+    private var captureTask: Task<Void, Never>?
+    private var captureGeneration: UInt = 0
     private var warmupTask: Task<Void, Never>?
     private var textRecognitionTask: Task<Void, Never>?
     private var barcodeScanTask: Task<Void, Never>?
@@ -63,7 +65,7 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
     }
 
     func start() {
-        guard !isCapturing, overlayController == nil else { return }
+        replaceActiveSession()
         guard permissionManager.refresh() else {
             permissionManager.requestPermission()
             showStatus(String(localized: "screenshot.permission.required"))
@@ -75,12 +77,19 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         }
 
         isCapturing = true
-        Task {
+        captureGeneration &+= 1
+        let generation = captureGeneration
+        captureTask = Task { [weak self] in
+            guard let self else { return }
             do {
                 async let image = capture(screen: screen)
                 let windows = capturableWindows(on: screen)
+                let capturedImage = try await image
+                guard !Task.isCancelled, generation == captureGeneration else {
+                    return
+                }
                 let session = ScreenshotSession(
-                    image: try await image,
+                    image: capturedImage,
                     screen: screen,
                     windows: windows
                 )
@@ -88,9 +97,14 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
                 controller.delegate = self
                 overlayController = controller
                 isCapturing = false
+                captureTask = nil
                 controller.show()
             } catch {
+                guard !Task.isCancelled, generation == captureGeneration else {
+                    return
+                }
                 isCapturing = false
+                captureTask = nil
                 showStatus(String(localized: "screenshot.capture.failed"))
             }
         }
@@ -405,6 +419,14 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         barcodeScanTask = nil
         overlayController?.close()
         overlayController = nil
+    }
+
+    private func replaceActiveSession() {
+        captureGeneration &+= 1
+        captureTask?.cancel()
+        captureTask = nil
+        isCapturing = false
+        finishSession()
     }
 
     private static func fileTimestamp() -> String {
