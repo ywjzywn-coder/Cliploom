@@ -20,7 +20,7 @@ private final class RememberingSplitView: NSSplitView, NSSplitViewDelegate {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         isVertical = true
-        dividerStyle = .thin
+        dividerStyle = .paneSplitter
         delegate = self
     }
 
@@ -40,6 +40,25 @@ private final class RememberingSplitView: NSSplitView, NSSplitViewDelegate {
             CGFloat(stored ?? Double(Self.defaultFraction))
         )
         setPosition(usableWidth * fraction, ofDividerAt: 0)
+    }
+
+    override var dividerThickness: CGFloat {
+        14
+    }
+
+    override func drawDivider(in rect: NSRect) {
+        let handle = NSRect(
+            x: rect.midX - 2,
+            y: rect.midY - 22,
+            width: 4,
+            height: 44
+        )
+        NSColor.separatorColor.withAlphaComponent(0.65).setFill()
+        NSBezierPath(
+            roundedRect: handle,
+            xRadius: 2,
+            yRadius: 2
+        ).fill()
     }
 
     func splitView(

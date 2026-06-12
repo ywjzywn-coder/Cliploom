@@ -481,11 +481,7 @@ final class ScreenshotOverlayView: NSView {
         }
 
         guard selection.contains(point) else {
-            session.selection = nil
-            session.annotations.removeAll()
-            session.hoveredWindow = session.window(at: point)
-            dragMode = .creating
-            needsDisplay = true
+            onCancel?()
             return
         }
 
