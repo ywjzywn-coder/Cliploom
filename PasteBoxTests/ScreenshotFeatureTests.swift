@@ -52,6 +52,60 @@ final class ScreenshotToolbarGeometryTests: XCTestCase {
     }
 }
 
+@MainActor
+final class ScreenshotOverlayInputTests: XCTestCase {
+    func testRightClickCancelsScreenshot() throws {
+        let view = ScreenshotOverlayView(
+            frame: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        var cancellationCount = 0
+        view.onCancel = { cancellationCount += 1 }
+        let event = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .rightMouseDown,
+                location: CGPoint(x: 120, y: 80),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+
+        view.rightMouseDown(with: event)
+
+        XCTAssertEqual(cancellationCount, 1)
+    }
+
+    func testEscapeCancelsScreenshot() throws {
+        let view = ScreenshotOverlayView(
+            frame: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        var cancellationCount = 0
+        view.onCancel = { cancellationCount += 1 }
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "\u{1B}",
+                charactersIgnoringModifiers: "\u{1B}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+
+        view.keyDown(with: event)
+
+        XCTAssertEqual(cancellationCount, 1)
+    }
+}
+
 final class OCRPanelGeometryTests: XCTestCase {
     func testSmallSelectionProducesCompactPanel() {
         let size = OCRPanelGeometry.preferredSize(

@@ -200,7 +200,8 @@ report a copy-only fallback instead of silently failing.
 - Dragging creates a free selection.
 - After a selection exists, clicking outside it cancels the screenshot.
 - Selection supports move and eight-direction resize.
-- Escape cancels; Enter and double-click complete.
+- Right-click or Escape cancels from any screenshot state; Enter and
+  double-click complete.
 
 The annotation toolbar must include:
 

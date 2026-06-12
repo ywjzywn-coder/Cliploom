@@ -486,6 +486,10 @@ final class ScreenshotOverlayView: NSView {
         }
     }
 
+    override func rightMouseDown(with event: NSEvent) {
+        cancelScreenshot()
+    }
+
     override func mouseDragged(with event: NSEvent) {
         let point = clamped(convert(event.locationInWindow, from: nil))
         switch dragMode {
@@ -542,7 +546,7 @@ final class ScreenshotOverlayView: NSView {
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
         case 53:
-            onCancel?()
+            cancelScreenshot()
         case 36, 76:
             if session.selection != nil { onFinish?() }
         case 51:
@@ -559,6 +563,13 @@ final class ScreenshotOverlayView: NSView {
         }
     }
 
+    private func cancelScreenshot() {
+        dragMode = .none
+        draftAnnotation = nil
+        penPoints.removeAll()
+        onCancel?()
+    }
+
     private func performToolbarAction(_ action: ToolbarAction) {
         switch action {
         case let .tool(tool):
@@ -572,7 +583,7 @@ final class ScreenshotOverlayView: NSView {
         case .save:
             onSave?()
         case .cancel:
-            onCancel?()
+            cancelScreenshot()
         case .done:
             onFinish?()
         case .recognizeText:

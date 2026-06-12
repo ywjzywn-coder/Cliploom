@@ -2,6 +2,13 @@
 
 All notable changes to Cliploom are documented here.
 
+## Unreleased
+
+### Changed
+
+- Right-click and Escape now share the same immediate screenshot cancellation
+  behavior from every overlay state.
+
 ## [0.1.1] - 2026-06-12
 
 ### Added
