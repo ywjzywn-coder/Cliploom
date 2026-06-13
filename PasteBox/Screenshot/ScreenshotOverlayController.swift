@@ -1028,16 +1028,12 @@ final class ScreenshotOverlayView: NSView {
               let sample = pixelSampler.sample(
                 at: pointerLocation,
                 mapper: session.mapper
-              ),
-              let magnifier = pixelSampler.magnifierCrop(
-                centeredAt: sample.pixelPoint,
-                diameter: 11
               )
         else {
             return
         }
 
-        let panelSize = CGSize(width: 140, height: 166)
+        let panelSize = CGSize(width: 112, height: 36)
         let panelRect = colorInspectorFrame(
             near: pointerLocation,
             size: panelSize
@@ -1048,63 +1044,24 @@ final class ScreenshotOverlayView: NSView {
             xRadius: 10,
             yRadius: 10
         ).fill()
-        NSColor.white.withAlphaComponent(0.34).setStroke()
+        let wasJustCopied = copiedColorValue == sample.hex
+        (wasJustCopied
+            ? NSColor.systemGreen.withAlphaComponent(0.95)
+            : NSColor.white.withAlphaComponent(0.34)
+        ).setStroke()
         let panelBorder = NSBezierPath(
             roundedRect: panelRect.insetBy(dx: 0.5, dy: 0.5),
             xRadius: 10,
             yRadius: 10
         )
-        panelBorder.lineWidth = 1
+        panelBorder.lineWidth = wasJustCopied ? 1.5 : 1
         panelBorder.stroke()
 
-        let previewRect = CGRect(
-            x: panelRect.minX + 10,
-            y: panelRect.minY + 36,
-            width: 120,
-            height: 120
-        )
-        let representation = NSBitmapImageRep(cgImage: magnifier.image)
-        representation.size = previewRect.size
-        let preview = NSImage(size: previewRect.size)
-        preview.addRepresentation(representation)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current?.imageInterpolation = .none
-        preview.draw(
-            in: previewRect,
-            from: CGRect(origin: .zero, size: preview.size),
-            operation: .copy,
-            fraction: 1
-        )
-        NSGraphicsContext.restoreGraphicsState()
-        NSColor.white.withAlphaComponent(0.38).setStroke()
-        let previewBorder = NSBezierPath(rect: previewRect)
-        previewBorder.lineWidth = 1
-        previewBorder.stroke()
-
-        let cellWidth = previewRect.width / magnifier.rect.width
-        let cellHeight = previewRect.height / magnifier.rect.height
-        let centerColumn = sample.pixelPoint.x - magnifier.rect.minX
-        let centerRow = sample.pixelPoint.y - magnifier.rect.minY
-        let centerRect = CGRect(
-            x: previewRect.minX + centerColumn * cellWidth,
-            y: previewRect.maxY - (centerRow + 1) * cellHeight,
-            width: cellWidth,
-            height: cellHeight
-        )
-        NSColor.black.withAlphaComponent(0.9).setStroke()
-        let centerContrast = NSBezierPath(rect: centerRect.insetBy(dx: -1, dy: -1))
-        centerContrast.lineWidth = 3
-        centerContrast.stroke()
-        NSColor.white.setStroke()
-        let centerBorder = NSBezierPath(rect: centerRect)
-        centerBorder.lineWidth = 1.5
-        centerBorder.stroke()
-
         let swatchRect = CGRect(
-            x: panelRect.minX + 10,
-            y: panelRect.minY + 9,
-            width: 18,
-            height: 18
+            x: panelRect.minX + 8,
+            y: panelRect.minY + 8,
+            width: 20,
+            height: 20
         )
         sample.color.setFill()
         NSBezierPath(roundedRect: swatchRect, xRadius: 4, yRadius: 4).fill()
@@ -1112,31 +1069,12 @@ final class ScreenshotOverlayView: NSView {
         NSBezierPath(roundedRect: swatchRect, xRadius: 4, yRadius: 4).stroke()
 
         let primaryAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
+            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold),
             .foregroundColor: NSColor.white
         ]
         sample.hex.draw(
-            at: CGPoint(x: swatchRect.maxX + 6, y: panelRect.minY + 10),
+            at: CGPoint(x: swatchRect.maxX + 8, y: panelRect.minY + 10),
             withAttributes: primaryAttributes
-        )
-
-        let hint = copiedColorValue == sample.hex
-            ? String(localized: "screenshot.color.copied")
-            : "⌘C"
-        let hintStyle = NSMutableParagraphStyle()
-        hintStyle.alignment = .right
-        hint.draw(
-            in: CGRect(
-                x: panelRect.maxX - 48,
-                y: panelRect.minY + 9,
-                width: 38,
-                height: 18
-            ),
-            withAttributes: [
-                .font: NSFont.systemFont(ofSize: 10, weight: .medium),
-                .foregroundColor: NSColor.white.withAlphaComponent(0.72),
-                .paragraphStyle: hintStyle
-            ]
         )
     }
 
@@ -1171,7 +1109,7 @@ final class ScreenshotOverlayView: NSView {
         near point: CGPoint,
         size: CGSize
     ) -> CGRect {
-        let gap: CGFloat = 12
+        let gap: CGFloat = 10
         var x = point.x + gap
         var y = point.y - size.height - gap
         if x + size.width > bounds.maxX - 8 {

@@ -16,8 +16,8 @@ All notable changes to Cliploom are documented here.
   available, preserving QR-code popovers that close as soon as a key is pressed.
 - Starting another screenshot from an OCR or QR result window now snapshots the
   visible result first, then closes the previous session.
-- Screenshot mode now includes a compact WeChat-style pixel magnifier beside
-  the pointer with a center crosshair, color swatch, and HEX value.
+- Screenshot mode now shows a compact color swatch and HEX value beside the
+  pointer without obscuring nearby content.
 - `Command+C` copies the hovered HEX value without adding it to clipboard
   history.
 
