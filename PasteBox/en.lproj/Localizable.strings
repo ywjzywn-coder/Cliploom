@@ -121,6 +121,7 @@
 "screenshot.color.blue" = "Blue";
 "screenshot.color.black" = "Black";
 "screenshot.color.white" = "White";
+"screenshot.color.copied" = "Copied";
 "screenshot.width.thin" = "Thin";
 "screenshot.width.medium" = "Medium";
 "screenshot.width.thick" = "Thick";

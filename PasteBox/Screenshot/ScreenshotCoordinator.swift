@@ -281,6 +281,18 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         NSWorkspace.shared.open(url)
     }
 
+    func screenshotOverlay(
+        _ controller: ScreenshotOverlayController,
+        didRequestCopyColor value: String
+    ) -> Bool {
+        pasteboard.clearContents()
+        guard pasteboard.setString(value, forType: .string) else {
+            return false
+        }
+        monitor.ignoreCurrentChange()
+        return true
+    }
+
     private func capture(screen: NSScreen) async throws -> CGImage {
         do {
             let target = try await captureTarget(for: screen)

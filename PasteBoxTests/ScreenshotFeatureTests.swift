@@ -212,6 +212,59 @@ final class ScreenshotOverlayInputTests: XCTestCase {
 
         XCTAssertEqual(cancellationCount, 1)
     }
+
+    func testColorInspectorCopiesHoveredHexValue() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let image = try makeSolidImage(
+            color: NSColor(
+                deviceRed: 0,
+                green: 1,
+                blue: 0,
+                alpha: 1
+            )
+        )
+        let session = ScreenshotSession(
+            image: image,
+            screen: screen,
+            windows: []
+        )
+        let view = ScreenshotOverlayView(
+            frame: CGRect(origin: .zero, size: screen.frame.size)
+        )
+        view.session = session
+        var copiedValue: String?
+        view.onCopyColor = { value in
+            copiedValue = value
+            return true
+        }
+
+        XCTAssertTrue(
+            view.copyColorValue(
+                at: CGPoint(
+                    x: screen.frame.width / 2,
+                    y: screen.frame.height / 2
+                )
+            )
+        )
+        XCTAssertEqual(copiedValue, "#00FF00")
+    }
+
+    private func makeSolidImage(color: NSColor) throws -> CGImage {
+        let context = try XCTUnwrap(
+            CGContext(
+                data: nil,
+                width: 4,
+                height: 4,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        )
+        context.setFillColor(color.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        return try XCTUnwrap(context.makeImage())
+    }
 }
 
 final class OCRPanelGeometryTests: XCTestCase {

@@ -37,6 +37,10 @@ protocol ScreenshotOverlayControllerDelegate: AnyObject {
         _ controller: ScreenshotOverlayController,
         didRequestOpenBarcode result: BarcodeResult
     )
+    func screenshotOverlay(
+        _ controller: ScreenshotOverlayController,
+        didRequestCopyColor value: String
+    ) -> Bool
 }
 
 @MainActor
@@ -118,6 +122,13 @@ final class ScreenshotOverlayController: NSWindowController {
                 self,
                 didRequestOpenBarcode: result
             )
+        }
+        overlayView.onCopyColor = { [weak self] value in
+            guard let self else { return false }
+            return self.delegate?.screenshotOverlay(
+                self,
+                didRequestCopyColor: value
+            ) ?? false
         }
     }
 
@@ -408,6 +419,7 @@ final class ScreenshotOverlayView: NSView {
     var onCopyRecognizedText: ((String) -> Void)?
     var onCopyBarcode: ((BarcodeResult) -> Void)?
     var onOpenBarcode: ((BarcodeResult) -> Void)?
+    var onCopyColor: ((String) -> Bool)?
     var isRecognizingText = false {
         didSet { needsDisplay = true }
     }
@@ -423,6 +435,8 @@ final class ScreenshotOverlayView: NSView {
     private var hoveredToolbarTitle: String?
     private var pointerLocation: CGPoint?
     private var trackingAreaReference: NSTrackingArea?
+    private var copiedColorValue: String?
+    private var colorCopyResetWorkItem: DispatchWorkItem?
     private lazy var pixelSampler = ScreenshotPixelSampler(image: session.image)
 
     override var acceptsFirstResponder: Bool { true }
@@ -617,6 +631,17 @@ final class ScreenshotOverlayView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command),
+           event.charactersIgnoringModifiers?.lowercased() == "c" {
+            guard let pointerLocation,
+                  copyColorValue(at: pointerLocation)
+            else {
+                NSSound.beep()
+                return
+            }
+            return
+        }
+
         switch event.keyCode {
         case 53:
             cancelScreenshot()
@@ -1012,31 +1037,31 @@ final class ScreenshotOverlayView: NSView {
             return
         }
 
-        let panelSize = CGSize(width: 230, height: 116)
+        let panelSize = CGSize(width: 140, height: 166)
         let panelRect = colorInspectorFrame(
             near: pointerLocation,
             size: panelSize
         )
-        NSColor.windowBackgroundColor.withAlphaComponent(0.96).setFill()
+        NSColor.black.withAlphaComponent(0.88).setFill()
         NSBezierPath(
             roundedRect: panelRect,
-            xRadius: 12,
-            yRadius: 12
+            xRadius: 10,
+            yRadius: 10
         ).fill()
-        NSColor.white.withAlphaComponent(0.26).setStroke()
+        NSColor.white.withAlphaComponent(0.34).setStroke()
         let panelBorder = NSBezierPath(
             roundedRect: panelRect.insetBy(dx: 0.5, dy: 0.5),
-            xRadius: 12,
-            yRadius: 12
+            xRadius: 10,
+            yRadius: 10
         )
         panelBorder.lineWidth = 1
         panelBorder.stroke()
 
         let previewRect = CGRect(
             x: panelRect.minX + 10,
-            y: panelRect.minY + 10,
-            width: 96,
-            height: 96
+            y: panelRect.minY + 36,
+            width: 120,
+            height: 120
         )
         let representation = NSBitmapImageRep(cgImage: magnifier.image)
         representation.size = previewRect.size
@@ -1051,6 +1076,10 @@ final class ScreenshotOverlayView: NSView {
             fraction: 1
         )
         NSGraphicsContext.restoreGraphicsState()
+        NSColor.white.withAlphaComponent(0.38).setStroke()
+        let previewBorder = NSBezierPath(rect: previewRect)
+        previewBorder.lineWidth = 1
+        previewBorder.stroke()
 
         let cellWidth = previewRect.width / magnifier.rect.width
         let cellHeight = previewRect.height / magnifier.rect.height
@@ -1071,45 +1100,78 @@ final class ScreenshotOverlayView: NSView {
         centerBorder.lineWidth = 1.5
         centerBorder.stroke()
 
-        let textX = previewRect.maxX + 10
         let swatchRect = CGRect(
-            x: textX,
-            y: panelRect.maxY - 38,
-            width: 64,
-            height: 24
+            x: panelRect.minX + 10,
+            y: panelRect.minY + 9,
+            width: 18,
+            height: 18
         )
         sample.color.setFill()
-        NSBezierPath(roundedRect: swatchRect, xRadius: 6, yRadius: 6).fill()
-        NSColor.separatorColor.setStroke()
-        NSBezierPath(roundedRect: swatchRect, xRadius: 6, yRadius: 6).stroke()
+        NSBezierPath(roundedRect: swatchRect, xRadius: 4, yRadius: 4).fill()
+        NSColor.white.withAlphaComponent(0.5).setStroke()
+        NSBezierPath(roundedRect: swatchRect, xRadius: 4, yRadius: 4).stroke()
 
         let primaryAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold),
-            .foregroundColor: NSColor.labelColor
-        ]
-        let secondaryAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
-            .foregroundColor: NSColor.secondaryLabelColor
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .semibold),
+            .foregroundColor: NSColor.white
         ]
         sample.hex.draw(
-            at: CGPoint(x: textX, y: panelRect.minY + 48),
+            at: CGPoint(x: swatchRect.maxX + 6, y: panelRect.minY + 10),
             withAttributes: primaryAttributes
         )
-        sample.rgb.draw(
-            at: CGPoint(x: textX, y: panelRect.minY + 29),
-            withAttributes: secondaryAttributes
+
+        let hint = copiedColorValue == sample.hex
+            ? String(localized: "screenshot.color.copied")
+            : "⌘C"
+        let hintStyle = NSMutableParagraphStyle()
+        hintStyle.alignment = .right
+        hint.draw(
+            in: CGRect(
+                x: panelRect.maxX - 48,
+                y: panelRect.minY + 9,
+                width: 38,
+                height: 18
+            ),
+            withAttributes: [
+                .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+                .foregroundColor: NSColor.white.withAlphaComponent(0.72),
+                .paragraphStyle: hintStyle
+            ]
         )
-        "X \(Int(sample.pixelPoint.x))  Y \(Int(sample.pixelPoint.y))".draw(
-            at: CGPoint(x: textX, y: panelRect.minY + 12),
-            withAttributes: secondaryAttributes
+    }
+
+    @discardableResult
+    func copyColorValue(at point: CGPoint) -> Bool {
+        guard let sample = pixelSampler.sample(
+            at: point,
+            mapper: session.mapper
+        ), onCopyColor?(sample.hex) == true
+        else {
+            return false
+        }
+
+        copiedColorValue = sample.hex
+        colorCopyResetWorkItem?.cancel()
+        let copiedValue = sample.hex
+        let workItem = DispatchWorkItem { [weak self] in
+            guard self?.copiedColorValue == copiedValue else { return }
+            self?.copiedColorValue = nil
+            self?.needsDisplay = true
+        }
+        colorCopyResetWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 1.2,
+            execute: workItem
         )
+        needsDisplay = true
+        return true
     }
 
     private func colorInspectorFrame(
         near point: CGPoint,
         size: CGSize
     ) -> CGRect {
-        let gap: CGFloat = 18
+        let gap: CGFloat = 12
         var x = point.x + gap
         var y = point.y - size.height - gap
         if x + size.width > bounds.maxX - 8 {
