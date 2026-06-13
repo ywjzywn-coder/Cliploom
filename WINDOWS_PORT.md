@@ -2,14 +2,15 @@
 
 > **Status:** ready for implementation
 >
-> **Product baseline:** `v0.1.0`
+> **Product baseline:** macOS `v0.1.2`
 >
 > Recommended target: Windows 11 22H2 or later
 
 This document is the handoff contract for another developer or coding agent.
-The macOS app is the behavior reference, not a code template. Preserve the
-workflows and data guarantees while replacing Apple frameworks with
-Windows-native APIs.
+The macOS app is the behavior reference and product prototype, not a directly
+portable codebase. Preserve its workflows, data guarantees, copy, paste,
+screenshot, OCR, barcode, and color-picker behavior while replacing Apple
+frameworks and visual conventions with Windows-native APIs and WinUI 3.
 
 ## Product Goal
 
@@ -20,7 +21,7 @@ Build a lightweight Windows version of Cliploom with these primary workflows:
 - Text, links, images, and files are classified automatically.
 - Enter pastes into the previously active application.
 - Screenshots support window selection, free selection, annotations, mosaic,
-  OCR, QR/barcode scanning, save, and clipboard output.
+  OCR, QR/barcode scanning, color sampling, save, and clipboard output.
 - Favorites, settings, history, and panel position survive restart.
 - Clipboard, screenshots, OCR, and scan results remain local.
 
@@ -64,6 +65,251 @@ tests for them, and implement behind platform-specific services.
 
 Third-party packages should be limited to clear platform gaps. Keep storage,
 classification, hotkey dispatch, and lifecycle code dependency-light.
+
+## Cross-Platform Reuse Boundary
+
+Reuse the product behavior, not the Swift implementation.
+
+Must remain consistent with macOS:
+
+- Content categories, deduplication, cleanup, favorites, and search semantics.
+- Keyboard navigation and confirm/cancel behavior.
+- Screenshot selection, editing, OCR, barcode, and color-copy workflows.
+- Local-only privacy policy and failure fallbacks.
+- Chinese and English terminology where platform wording does not differ.
+
+Must be implemented natively for Windows:
+
+- Windows, controls, layout, typography, icons, animations, and system theme.
+- Clipboard notifications, hotkeys, capture, OCR, synthetic input, startup,
+  persistence, and packaging.
+- Mixed-DPI coordinate conversion and foreground-window restoration.
+
+Do not embed or invoke the macOS executable, translate Swift line by line, or
+imitate macOS title bars and materials inside WinUI. Shared behavior can later
+be documented as platform-neutral test vectors, but the first Windows version
+does not need a shared runtime library.
+
+## WinUI 3 Design Specification
+
+### Design Principles
+
+- Follow Windows 11 Fluent design and use native WinUI 3 controls first.
+- Keep the clipboard panel compact and glanceable, similar in proportion to
+  Windows clipboard history, without copying its branding or private UI.
+- Use progressive disclosure: common actions stay visible; destructive or rare
+  actions live in a context menu or `MenuFlyout`.
+- Prefer keyboard operation, but never hide an essential action from pointer
+  and touch users.
+- Respect the system accent color, light/dark theme, text scaling, contrast,
+  reduced motion, and transparency settings.
+- Use short motion only to explain state changes. No decorative bouncing,
+  spring-heavy animation, or permanent background animation.
+
+### Design Tokens
+
+Use WinUI theme resources instead of hard-coded colors wherever possible.
+
+| Token | Windows implementation |
+| --- | --- |
+| App font | `Segoe UI Variable`, inherited from WinUI |
+| Body text | 14 effective pixels, regular |
+| Secondary text | 12 effective pixels |
+| Section title | 20 effective pixels, semibold |
+| Window title | 16 effective pixels, semibold |
+| Compact corner radius | 4 px |
+| Card/row corner radius | 8 px |
+| Floating window corner radius | system-managed; 12 px fallback |
+| Compact spacing | 4 px |
+| Normal spacing | 8 px |
+| Section spacing | 16 px |
+| Page margin | 24 px |
+| Minimum pointer target | 32 x 32 px |
+| Preferred touch target | 40 x 40 px |
+| Divider | `DividerStrokeColorDefaultBrush` |
+| Selected background | system accent at theme-appropriate low opacity |
+| Warning | system warning foreground/background resources |
+
+Use these materials:
+
+- Clipboard panel and result windows: `MicaBackdrop` when supported.
+- Screenshot toolbar and small transient surfaces: `DesktopAcrylicBackdrop`.
+- Screenshot mask: neutral black with approximately 45% opacity.
+- If transparency is disabled or unsupported, fall back to opaque
+  `LayerFillColorDefaultBrush`; content must remain fully usable.
+
+Use Fluent System Icons through `SymbolIcon` where an appropriate symbol
+exists. Use custom monochrome SVG paths only for missing tools such as mosaic
+or QR scan. Every icon button requires a tooltip and accessible name. Do not
+use emoji as production toolbar icons.
+
+### Clipboard Panel
+
+The panel is a compact, borderless utility window:
+
+- Initial size: 420 x 540 DIPs.
+- Allowed resize range: 360-560 DIPs wide and 420-760 DIPs high.
+- Remember size and position independently.
+- Open centered on the pointer's current monitor the first time; afterward use
+  the remembered position if it is still visible.
+- Clamp the whole title/drag region and at least 48 DIPs of body content inside
+  the monitor work area after display changes.
+- Use a custom title bar with a 40-DIP drag region. Keep pause and settings
+  actions on the right, outside the draggable hit-test region.
+
+Layout from top to bottom:
+
+1. Compact title/drag row.
+2. Search box, 36 DIPs high.
+3. Category navigation.
+4. Scrollable history list.
+5. Keyboard hints and visible item count.
+
+Category navigation should use a compact horizontal `TabView`-like selector or
+`ItemsRepeater`, not a permanent wide `NavigationView`. At narrow widths show
+icons with tooltips; when space permits show icon and label. Order is:
+All, Favorites, Text, Links, Images, Files.
+
+Each history row:
+
+- Minimum height: 64 DIPs.
+- Preview: 40 x 40 DIPs.
+- Primary summary: maximum two lines.
+- Metadata: kind, unavailable state when relevant, and date plus hour only.
+- Favorite action: visible when selected, hovered, focused, or already
+  favorited; place it at the trailing edge with a stable hit target.
+- Selected state uses both background and a subtle accent border so selection
+  remains visible in dark mode and high contrast.
+
+Interactions:
+
+- Up/Down changes selection; Enter pastes; Escape closes.
+- Double-click pastes.
+- Right-click opens Favorite, Delete, Copy only, and Show in Explorer.
+- Search receives focus when the panel opens.
+- Losing activation closes the panel unless a child flyout or dialog is open.
+- Deletion should happen immediately for one item, with a short undo
+  notification. Clearing all history requires a confirmation dialog.
+
+Empty states must distinguish no history, no category results, and no search
+results. Use `InfoBar` for non-blocking failures such as paste fallback or an
+unavailable file. Do not use modal dialogs for routine status.
+
+### Screenshot Overlay
+
+- Create one borderless topmost overlay per active capture monitor.
+- Show the captured frame at native sharpness. Never scale a low-resolution
+  preview up to the monitor size.
+- Automatically detected windows remain at original brightness; indicate the
+  target using a 2-DIP high-contrast border and a subtle accent outer glow.
+- After a selection exists, dim only the area outside the selection.
+- Selection handles remain a constant 8-DIP visual size regardless of crop
+  aspect ratio. Toolbar icons must never stretch with the selection.
+- Clicking outside an existing selection, right-clicking, or pressing Escape
+  cancels immediately.
+
+The toolbar is a fixed-height, content-sized floating surface:
+
+- Height: 44 DIPs.
+- Icon buttons: 36 x 36 DIPs.
+- Tool groups separated by 1-DIP dividers and 8-DIP spacing.
+- Place below the selection when possible, otherwise above it, and clamp to the
+  monitor work area.
+- Order: Rectangle, Arrow, Pen, Text, Mosaic, Undo, OCR, QR/Barcode, Save,
+  Cancel, Complete.
+- Color and line-width choices use a single `Flyout` anchored to the active
+  annotation tool. OCR and QR/Barcode are first-level actions, not hidden in a
+  secondary menu.
+
+Color sampling is always active during screenshot selection:
+
+- Show a small label near the pointer containing only a color swatch and
+  uppercase HEX value such as `#0A84FF`.
+- Offset the label so it does not cover the sampled pixel and flip it at screen
+  edges.
+- `Ctrl+C` copies the current HEX value without creating clipboard history.
+  Route this write through the same internal-write suppression used by
+  screenshot and paste operations.
+
+### OCR Result Window
+
+- Close or hide the screenshot overlay before presenting results.
+- Show the selected image on the left and editable recognized text on the
+  right.
+- Use a horizontal `Grid` with a custom 6-DIP splitter hit target. The visible
+  divider should be a subtle 1-DIP line with a 3-DIP rounded grip that appears
+  on hover or keyboard focus.
+- Initial split ratio: 45% image and 55% text. Persist the user's ratio and
+  clamp each side to at least 28% of available width.
+- The result window size follows the selected image and text content. It must
+  not use one fixed size.
+- Minimum size: 560 x 360 DIPs.
+- Maximum size: 90% of the current monitor work area.
+- For a small crop, open near the minimum content-fitting size. For a long or
+  large crop, grow until the maximum and then scroll internally.
+- Remember user-resized window size only as a preference ceiling; never allow
+  it to extend beyond the current monitor.
+- Clicking another app may place this window behind it, but a new screenshot
+  hotkey must still start immediately and replace the old result session.
+
+The text pane includes Recognize again, Copy text, and Close actions.
+Recognition runs off the UI thread and exposes progress, cancellation, empty
+result, and retry states without freezing the window.
+
+### Barcode Result Window
+
+- Use a compact content-sized result window, clamped to 80% of the monitor work
+  area.
+- Display each unique result as a card with symbology, selectable payload,
+  Copy, and conditionally Open link.
+- Only valid `http` and `https` links receive Open link.
+- Empty and failure states remain visible with Retry and Close actions.
+- Starting another scan creates fresh view state. Never reuse a stale
+  collection, cancellation token, or result window model.
+
+### Settings And Tray
+
+Use `NavigationView` with these pages:
+
+- General: startup, pause recording, history limits, clear history.
+- Shortcuts: clipboard and screenshot gestures with conflict validation.
+- Privacy: local-only explanation and data location.
+- About: version, repository, license, and diagnostic information.
+
+Settings use standard WinUI controls and a minimum content width of 640 DIPs.
+Keep labels left-aligned and put descriptions below their related setting.
+Validation appears inline; a failed shortcut update preserves the previous
+working shortcut.
+
+The notification-area icon menu contains Open Clipboard, Screenshot, Pause or
+Resume Recording, Settings, and Quit. Double-click opens the clipboard panel.
+
+### Accessibility And Localization
+
+- Every interactive element needs an automation name and keyboard focus state.
+- Keyboard focus must remain visible independently of hover and selection.
+- Support Windows high contrast without relying on transparency or color alone.
+- Support 100%-200% display scaling and 100%-200% text scaling without clipped
+  controls.
+- Avoid fixed text widths. Chinese and English layouts must be tested
+  separately.
+- Use Windows wording on Windows, for example Explorer, `Ctrl+V`, and startup,
+  even when the equivalent macOS label differs.
+- Respect reduced-motion settings by replacing transitions with immediate
+  state changes.
+
+### Visual Acceptance Checklist
+
+- The UI uses WinUI 3 controls, Fluent icons, system accent, and system theme.
+- No macOS traffic-light controls, SF Symbols, menu-bar terminology, or
+  macOS-style permission screens appear in the Windows build.
+- Light, dark, and high-contrast themes keep every icon and selection visible.
+- Clipboard rows, favorite buttons, screenshot handles, and toolbar icons keep
+  their shape at every supported window and selection aspect ratio.
+- OCR and barcode windows stay inside the active monitor at all supported DPI
+  scales.
+- Pointer, keyboard, touch, and screen-reader users can complete both primary
+  workflows.
 
 ## Platform Mapping
 
