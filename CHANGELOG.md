@@ -4,6 +4,15 @@ All notable changes to Cliploom are documented here.
 
 ## Unreleased
 
+## [0.1.2] - 2026-06-14
+
+### Added
+
+- Screenshot mode now shows a compact color swatch and HEX value beside the
+  pointer without obscuring nearby content.
+- `Command+C` copies the hovered HEX value without adding it to clipboard
+  history.
+
 ### Changed
 
 - Right-click and Escape now share the same immediate screenshot cancellation
@@ -16,10 +25,6 @@ All notable changes to Cliploom are documented here.
   available, preserving QR-code popovers that close as soon as a key is pressed.
 - Starting another screenshot from an OCR or QR result window now snapshots the
   visible result first, then closes the previous session.
-- Screenshot mode now shows a compact color swatch and HEX value beside the
-  pointer without obscuring nearby content.
-- `Command+C` copies the hovered HEX value without adding it to clipboard
-  history.
 
 ## [0.1.1] - 2026-06-12
 
@@ -68,5 +73,6 @@ All notable changes to Cliploom are documented here.
 - A signed and notarized binary is not attached because the repository owner
   has not configured a Developer ID Application certificate in this environment.
 
+[0.1.2]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.0

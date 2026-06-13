@@ -41,11 +41,11 @@ Windows 版本可依据同一套产品行为继续开发。
 ### 第 1 步：下载安装包
 
 前往
-[Cliploom 0.1.1 Developer Preview](https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.1)，
+[Cliploom 0.1.2 Developer Preview](https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.2)，
 下载：
 
 ```text
-Cliploom-0.1.1-macOS-universal-unnotarized.dmg
+Cliploom-0.1.2-macOS-universal-unnotarized.dmg
 ```
 
 成功标志：下载目录中出现 `.dmg` 文件。
