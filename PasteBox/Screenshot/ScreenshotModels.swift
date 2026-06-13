@@ -68,6 +68,16 @@ struct ScreenshotCoordinateMapper {
     var scaleX: CGFloat { pixelSize.width / max(viewSize.width, 1) }
     var scaleY: CGFloat { pixelSize.height / max(viewSize.height, 1) }
 
+    func pixelPoint(for viewPoint: CGPoint) -> CGPoint {
+        CGPoint(
+            x: min(max(floor(viewPoint.x * scaleX), 0), max(pixelSize.width - 1, 0)),
+            y: min(
+                max(floor((viewSize.height - viewPoint.y) * scaleY), 0),
+                max(pixelSize.height - 1, 0)
+            )
+        )
+    }
+
     func pixelCropRect(for selection: CGRect) -> CGRect {
         let standardized = selection.standardized.intersection(
             CGRect(origin: .zero, size: viewSize)
@@ -91,6 +101,91 @@ struct ScreenshotCoordinateMapper {
             width: globalFrame.width,
             height: globalFrame.height
         ).intersection(CGRect(origin: .zero, size: screenSize))
+    }
+}
+
+struct ScreenshotColorSample: Equatable {
+    let red: Int
+    let green: Int
+    let blue: Int
+    let alpha: Int
+    let pixelPoint: CGPoint
+
+    var hex: String {
+        String(format: "#%02X%02X%02X", red, green, blue)
+    }
+
+    var rgb: String {
+        "RGB \(red), \(green), \(blue)"
+    }
+
+    var color: NSColor {
+        NSColor(
+            calibratedRed: CGFloat(red) / 255,
+            green: CGFloat(green) / 255,
+            blue: CGFloat(blue) / 255,
+            alpha: CGFloat(alpha) / 255
+        )
+    }
+}
+
+final class ScreenshotPixelSampler {
+    let image: CGImage
+    private let bitmap: NSBitmapImageRep
+
+    init(image: CGImage) {
+        self.image = image
+        bitmap = NSBitmapImageRep(cgImage: image)
+    }
+
+    func sample(
+        at viewPoint: CGPoint,
+        mapper: ScreenshotCoordinateMapper
+    ) -> ScreenshotColorSample? {
+        let pixelPoint = mapper.pixelPoint(for: viewPoint)
+        guard let color = bitmap.colorAt(
+            x: Int(pixelPoint.x),
+            y: Int(pixelPoint.y)
+        )?.usingColorSpace(.sRGB) else {
+            return nil
+        }
+
+        return ScreenshotColorSample(
+            red: Self.byte(color.redComponent),
+            green: Self.byte(color.greenComponent),
+            blue: Self.byte(color.blueComponent),
+            alpha: Self.byte(color.alphaComponent),
+            pixelPoint: pixelPoint
+        )
+    }
+
+    func magnifierCrop(
+        centeredAt pixelPoint: CGPoint,
+        diameter: Int
+    ) -> (image: CGImage, rect: CGRect)? {
+        let size = max(diameter, 1)
+        let half = size / 2
+        let maximumX = max(image.width - size, 0)
+        let maximumY = max(image.height - size, 0)
+        let originX = min(max(Int(pixelPoint.x) - half, 0), maximumX)
+        let originY = min(max(Int(pixelPoint.y) - half, 0), maximumY)
+        let cropRect = CGRect(
+            x: originX,
+            y: originY,
+            width: min(size, image.width),
+            height: min(size, image.height)
+        )
+        guard cropRect.width > 0,
+              cropRect.height > 0,
+              let cropped = image.cropping(to: cropRect)
+        else {
+            return nil
+        }
+        return (cropped, cropRect)
+    }
+
+    private static func byte(_ component: CGFloat) -> Int {
+        min(max(Int((component * 255).rounded()), 0), 255)
     }
 }
 

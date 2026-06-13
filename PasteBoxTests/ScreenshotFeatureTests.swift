@@ -26,6 +26,90 @@ final class ScreenshotCoordinateMapperTests: XCTestCase {
 
         XCTAssertEqual(local, CGRect(x: 90, y: 280, width: 600, height: 500))
     }
+
+    func testPixelPointUsesRetinaScaleAndTopLeftImageCoordinates() {
+        let mapper = ScreenshotCoordinateMapper(
+            viewSize: CGSize(width: 100, height: 50),
+            pixelSize: CGSize(width: 200, height: 100)
+        )
+
+        XCTAssertEqual(
+            mapper.pixelPoint(for: CGPoint(x: 12.5, y: 40)),
+            CGPoint(x: 25, y: 20)
+        )
+        XCTAssertEqual(
+            mapper.pixelPoint(for: CGPoint(x: 100, y: 0)),
+            CGPoint(x: 199, y: 99)
+        )
+    }
+}
+
+final class ScreenshotPixelSamplerTests: XCTestCase {
+    func testSamplerReadsTopAndBottomColorsAndFormatsValues() throws {
+        let image = try makeTwoToneImage()
+        let sampler = ScreenshotPixelSampler(image: image)
+        let mapper = ScreenshotCoordinateMapper(
+            viewSize: CGSize(width: 2, height: 2),
+            pixelSize: CGSize(width: 2, height: 2)
+        )
+
+        let top = try XCTUnwrap(
+            sampler.sample(at: CGPoint(x: 0.5, y: 1.5), mapper: mapper)
+        )
+        let bottom = try XCTUnwrap(
+            sampler.sample(at: CGPoint(x: 0.5, y: 0.5), mapper: mapper)
+        )
+
+        XCTAssertEqual(top.hex, "#0000FF")
+        XCTAssertEqual(top.rgb, "RGB 0, 0, 255")
+        XCTAssertEqual(bottom.hex, "#FF0000")
+        XCTAssertEqual(bottom.rgb, "RGB 255, 0, 0")
+    }
+
+    func testMagnifierCropStaysInsideImageAtEdges() throws {
+        let image = try makeTwoToneImage(width: 20, height: 12)
+        let sampler = ScreenshotPixelSampler(image: image)
+
+        let crop = try XCTUnwrap(
+            sampler.magnifierCrop(
+                centeredAt: CGPoint(x: 19, y: 11),
+                diameter: 11
+            )
+        )
+
+        XCTAssertEqual(crop.rect, CGRect(x: 9, y: 1, width: 11, height: 11))
+        XCTAssertEqual(crop.image.width, 11)
+        XCTAssertEqual(crop.image.height, 11)
+    }
+
+    private func makeTwoToneImage(
+        width: Int = 2,
+        height: Int = 2
+    ) throws -> CGImage {
+        let context = try XCTUnwrap(
+            CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        )
+        context.setFillColor(NSColor.red.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height / 2))
+        context.setFillColor(NSColor.blue.cgColor)
+        context.fill(
+            CGRect(
+                x: 0,
+                y: height / 2,
+                width: width,
+                height: height - height / 2
+            )
+        )
+        return try XCTUnwrap(context.makeImage())
+    }
 }
 
 final class ScreenshotToolbarGeometryTests: XCTestCase {

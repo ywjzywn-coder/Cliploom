@@ -421,6 +421,9 @@ final class ScreenshotOverlayView: NSView {
     private var penPoints: [CGPoint] = []
     private var toolbarHitRegions: [ToolbarHitRegion] = []
     private var hoveredToolbarTitle: String?
+    private var pointerLocation: CGPoint?
+    private var trackingAreaReference: NSTrackingArea?
+    private lazy var pixelSampler = ScreenshotPixelSampler(image: session.image)
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { false }
@@ -448,6 +451,7 @@ final class ScreenshotOverlayView: NSView {
                 NSColor.black.withAlphaComponent(0.28).setFill()
                 bounds.fill()
             }
+            drawColorInspectorIfNeeded()
             return
         }
 
@@ -459,6 +463,7 @@ final class ScreenshotOverlayView: NSView {
         drawSelectionBorder(selection, color: .systemBlue, handles: true)
         drawSizeLabel(for: selection)
         drawToolbar(near: selection)
+        drawColorInspectorIfNeeded()
     }
 
     override func layout() {
@@ -467,8 +472,34 @@ final class ScreenshotOverlayView: NSView {
         positionBarcodePanel()
     }
 
+    override func updateTrackingAreas() {
+        if let trackingAreaReference {
+            removeTrackingArea(trackingAreaReference)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        trackingAreaReference = trackingArea
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        pointerLocation = clamped(convert(event.locationInWindow, from: nil))
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        pointerLocation = nil
+        needsDisplay = true
+    }
+
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        pointerLocation = clamped(point)
         if session.selection == nil {
             session.hoveredWindow = session.window(at: point)
             needsDisplay = true
@@ -485,6 +516,7 @@ final class ScreenshotOverlayView: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         mouseDownPoint = point
+        pointerLocation = nil
 
         if event.clickCount == 2,
            session.selection?.contains(point) == true {
@@ -531,6 +563,7 @@ final class ScreenshotOverlayView: NSView {
 
     override func mouseDragged(with event: NSEvent) {
         let point = clamped(convert(event.locationInWindow, from: nil))
+        pointerLocation = nil
         switch dragMode {
         case .none:
             break
@@ -576,6 +609,7 @@ final class ScreenshotOverlayView: NSView {
             break
         }
         dragMode = .none
+        pointerLocation = point
         if session.selection?.contains(point) == false, session.selection != nil {
             session.selection = clamp(session.selection!, to: bounds)
         }
@@ -957,6 +991,138 @@ final class ScreenshotOverlayView: NSView {
         value.draw(
             at: CGPoint(x: labelRect.minX + 7, y: labelRect.minY + 4),
             withAttributes: attributes
+        )
+    }
+
+    private func drawColorInspectorIfNeeded() {
+        guard case .none = dragMode,
+              ocrPanel == nil,
+              barcodePanel == nil,
+              let pointerLocation,
+              !toolbarHitRegions.contains(where: { $0.rect.contains(pointerLocation) }),
+              let sample = pixelSampler.sample(
+                at: pointerLocation,
+                mapper: session.mapper
+              ),
+              let magnifier = pixelSampler.magnifierCrop(
+                centeredAt: sample.pixelPoint,
+                diameter: 11
+              )
+        else {
+            return
+        }
+
+        let panelSize = CGSize(width: 230, height: 116)
+        let panelRect = colorInspectorFrame(
+            near: pointerLocation,
+            size: panelSize
+        )
+        NSColor.windowBackgroundColor.withAlphaComponent(0.96).setFill()
+        NSBezierPath(
+            roundedRect: panelRect,
+            xRadius: 12,
+            yRadius: 12
+        ).fill()
+        NSColor.white.withAlphaComponent(0.26).setStroke()
+        let panelBorder = NSBezierPath(
+            roundedRect: panelRect.insetBy(dx: 0.5, dy: 0.5),
+            xRadius: 12,
+            yRadius: 12
+        )
+        panelBorder.lineWidth = 1
+        panelBorder.stroke()
+
+        let previewRect = CGRect(
+            x: panelRect.minX + 10,
+            y: panelRect.minY + 10,
+            width: 96,
+            height: 96
+        )
+        let representation = NSBitmapImageRep(cgImage: magnifier.image)
+        representation.size = previewRect.size
+        let preview = NSImage(size: previewRect.size)
+        preview.addRepresentation(representation)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current?.imageInterpolation = .none
+        preview.draw(
+            in: previewRect,
+            from: CGRect(origin: .zero, size: preview.size),
+            operation: .copy,
+            fraction: 1
+        )
+        NSGraphicsContext.restoreGraphicsState()
+
+        let cellWidth = previewRect.width / magnifier.rect.width
+        let cellHeight = previewRect.height / magnifier.rect.height
+        let centerColumn = sample.pixelPoint.x - magnifier.rect.minX
+        let centerRow = sample.pixelPoint.y - magnifier.rect.minY
+        let centerRect = CGRect(
+            x: previewRect.minX + centerColumn * cellWidth,
+            y: previewRect.maxY - (centerRow + 1) * cellHeight,
+            width: cellWidth,
+            height: cellHeight
+        )
+        NSColor.black.withAlphaComponent(0.9).setStroke()
+        let centerContrast = NSBezierPath(rect: centerRect.insetBy(dx: -1, dy: -1))
+        centerContrast.lineWidth = 3
+        centerContrast.stroke()
+        NSColor.white.setStroke()
+        let centerBorder = NSBezierPath(rect: centerRect)
+        centerBorder.lineWidth = 1.5
+        centerBorder.stroke()
+
+        let textX = previewRect.maxX + 10
+        let swatchRect = CGRect(
+            x: textX,
+            y: panelRect.maxY - 38,
+            width: 64,
+            height: 24
+        )
+        sample.color.setFill()
+        NSBezierPath(roundedRect: swatchRect, xRadius: 6, yRadius: 6).fill()
+        NSColor.separatorColor.setStroke()
+        NSBezierPath(roundedRect: swatchRect, xRadius: 6, yRadius: 6).stroke()
+
+        let primaryAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.labelColor
+        ]
+        let secondaryAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 10, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ]
+        sample.hex.draw(
+            at: CGPoint(x: textX, y: panelRect.minY + 48),
+            withAttributes: primaryAttributes
+        )
+        sample.rgb.draw(
+            at: CGPoint(x: textX, y: panelRect.minY + 29),
+            withAttributes: secondaryAttributes
+        )
+        "X \(Int(sample.pixelPoint.x))  Y \(Int(sample.pixelPoint.y))".draw(
+            at: CGPoint(x: textX, y: panelRect.minY + 12),
+            withAttributes: secondaryAttributes
+        )
+    }
+
+    private func colorInspectorFrame(
+        near point: CGPoint,
+        size: CGSize
+    ) -> CGRect {
+        let gap: CGFloat = 18
+        var x = point.x + gap
+        var y = point.y - size.height - gap
+        if x + size.width > bounds.maxX - 8 {
+            x = point.x - size.width - gap
+        }
+        if y < bounds.minY + 8 {
+            y = point.y + gap
+        }
+        return CGRect(
+            x: min(max(x, bounds.minX + 8), bounds.maxX - size.width - 8),
+            y: min(max(y, bounds.minY + 8), bounds.maxY - size.height - 8),
+            width: size.width,
+            height: size.height
         )
     }
 
