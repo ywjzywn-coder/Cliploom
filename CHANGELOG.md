@@ -9,6 +9,9 @@ All notable changes to Cliploom are documented here.
 - Screenshot toolbar buttons now accept clicks at their visual edges and
   spacing, so the Done button no longer falls through as an outside-selection
   click.
+- Screenshot capture and the resident frame cache now use the display mode's
+  physical pixel dimensions at best quality, preventing scaled Retina and 4K
+  previews from appearing soft.
 
 ## [0.1.2] - 2026-06-14
 

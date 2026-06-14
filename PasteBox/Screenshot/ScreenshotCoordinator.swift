@@ -320,9 +320,17 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         }
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
+        let modePixelSize = CGDisplayCopyDisplayMode(displayID).map {
+            CGSize(width: $0.pixelWidth, height: $0.pixelHeight)
+        }
+        let pixelSize = ScreenshotCaptureGeometry.orientedPixelSize(
+            logicalSize: CGSize(width: display.width, height: display.height),
+            modePixelSize: modePixelSize
+        )
         let configuration = SCStreamConfiguration()
-        configuration.width = display.width
-        configuration.height = display.height
+        configuration.width = Int(pixelSize.width)
+        configuration.height = Int(pixelSize.height)
+        configuration.captureResolution = .best
         configuration.showsCursor = false
         configuration.capturesAudio = false
         configuration.queueDepth = 1
@@ -528,6 +536,7 @@ private final class ScreenshotFrameCache {
         let configuration = SCStreamConfiguration()
         configuration.width = target.configuration.width
         configuration.height = target.configuration.height
+        configuration.captureResolution = .best
         configuration.showsCursor = false
         configuration.capturesAudio = false
         configuration.queueDepth = 2

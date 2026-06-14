@@ -104,6 +104,38 @@ struct ScreenshotCoordinateMapper {
     }
 }
 
+enum ScreenshotCaptureGeometry {
+    static func orientedPixelSize(
+        logicalSize: CGSize,
+        modePixelSize: CGSize?
+    ) -> CGSize {
+        guard let modePixelSize,
+              logicalSize.width > 0,
+              logicalSize.height > 0,
+              modePixelSize.width > 0,
+              modePixelSize.height > 0
+        else {
+            return logicalSize
+        }
+
+        let logicalAspect = logicalSize.width / logicalSize.height
+        let directDifference = abs(
+            modePixelSize.width / modePixelSize.height - logicalAspect
+        )
+        let rotatedDifference = abs(
+            modePixelSize.height / modePixelSize.width - logicalAspect
+        )
+
+        if rotatedDifference < directDifference {
+            return CGSize(
+                width: modePixelSize.height,
+                height: modePixelSize.width
+            )
+        }
+        return modePixelSize
+    }
+}
+
 struct ScreenshotColorSample: Equatable {
     let red: Int
     let green: Int

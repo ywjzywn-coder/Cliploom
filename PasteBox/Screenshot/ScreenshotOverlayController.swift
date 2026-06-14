@@ -1004,7 +1004,8 @@ final class ScreenshotOverlayView: NSView {
     }
 
     private func drawSizeLabel(for rect: CGRect) {
-        let value = "\(Int(rect.width)) × \(Int(rect.height))"
+        let pixelRect = session.mapper.pixelCropRect(for: rect)
+        let value = "\(Int(pixelRect.width)) × \(Int(pixelRect.height))"
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedSystemFont(ofSize: 12, weight: .medium),
             .foregroundColor: NSColor.white

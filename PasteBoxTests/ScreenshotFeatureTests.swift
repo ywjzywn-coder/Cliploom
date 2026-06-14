@@ -44,6 +44,35 @@ final class ScreenshotCoordinateMapperTests: XCTestCase {
     }
 }
 
+final class ScreenshotCaptureGeometryTests: XCTestCase {
+    func testUsesPhysicalDisplayModePixelsForScaledDisplay() {
+        let size = ScreenshotCaptureGeometry.orientedPixelSize(
+            logicalSize: CGSize(width: 1920, height: 1080),
+            modePixelSize: CGSize(width: 3840, height: 2160)
+        )
+
+        XCTAssertEqual(size, CGSize(width: 3840, height: 2160))
+    }
+
+    func testRotatesPhysicalPixelSizeToMatchDisplayOrientation() {
+        let size = ScreenshotCaptureGeometry.orientedPixelSize(
+            logicalSize: CGSize(width: 1080, height: 1920),
+            modePixelSize: CGSize(width: 3840, height: 2160)
+        )
+
+        XCTAssertEqual(size, CGSize(width: 2160, height: 3840))
+    }
+
+    func testFallsBackToLogicalSizeWithoutDisplayMode() {
+        let size = ScreenshotCaptureGeometry.orientedPixelSize(
+            logicalSize: CGSize(width: 2560, height: 1440),
+            modePixelSize: nil
+        )
+
+        XCTAssertEqual(size, CGSize(width: 2560, height: 1440))
+    }
+}
+
 final class ScreenshotPixelSamplerTests: XCTestCase {
     func testSamplerReadsTopAndBottomColorsAndFormatsValues() throws {
         let image = try makeTwoToneImage()
