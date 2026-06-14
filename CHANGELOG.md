@@ -2,7 +2,7 @@
 
 All notable changes to Cliploom are documented here.
 
-## Unreleased
+## [1.0.0] - 2026-06-14
 
 ### Fixed
 
@@ -12,6 +12,14 @@ All notable changes to Cliploom are documented here.
 - Screenshot capture and the resident frame cache now use the display mode's
   physical pixel dimensions at best quality, preventing scaled Retina and 4K
   previews from appearing soft.
+
+### Release
+
+- Promoted Cliploom to its first stable release after completing the clipboard,
+  screenshot, OCR, barcode, color inspection, and cross-platform design
+  workflows.
+- Ships as an ad-hoc signed, unnotarized Universal DMG for Apple Silicon and
+  Intel Macs.
 
 ## [0.1.2] - 2026-06-14
 
@@ -82,6 +90,7 @@ All notable changes to Cliploom are documented here.
 - A signed and notarized binary is not attached because the repository owner
   has not configured a Developer ID Application certificate in this environment.
 
+[1.0.0]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v1.0.0
 [0.1.2]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.0

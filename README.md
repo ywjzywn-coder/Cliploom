@@ -41,11 +41,11 @@ Windows 版本可依据同一套产品行为继续开发。
 ### 第 1 步：下载安装包
 
 前往
-[Cliploom 0.1.2 Developer Preview](https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.2)，
+[Cliploom 1.0.0 正式版](https://github.com/ywjzywn-coder/Cliploom/releases/tag/v1.0.0)，
 下载：
 
 ```text
-Cliploom-0.1.2-macOS-universal-unnotarized.dmg
+Cliploom-1.0.0-macOS-universal-unnotarized.dmg
 ```
 
 成功标志：下载目录中出现 `.dmg` 文件。
@@ -60,7 +60,7 @@ Cliploom-0.1.2-macOS-universal-unnotarized.dmg
 
 ### 第 3 步：首次打开
 
-当前安装包没有 Apple Developer ID 公证，macOS 会提示无法验证开发者。
+当前正式版安装包没有 Apple Developer ID 公证，macOS 会提示无法验证开发者。
 
 1. 在“应用程序”中右键点击 Cliploom。
 2. 选择“打开”。
