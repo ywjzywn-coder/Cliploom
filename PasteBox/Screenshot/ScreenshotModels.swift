@@ -217,6 +217,42 @@ enum ScreenshotToolbarGeometry {
             height: size.height
         )
     }
+
+    static func hitIndex(
+        at point: CGPoint,
+        in rects: [CGRect],
+        expansion: CGFloat = 3
+    ) -> Int? {
+        if let exactIndex = rects.firstIndex(where: { $0.contains(point) }) {
+            return exactIndex
+        }
+
+        return rects.indices
+            .filter {
+                rects[$0]
+                    .insetBy(dx: -expansion, dy: -expansion)
+                    .contains(point)
+            }
+            .min {
+                distanceSquared(from: point, to: rects[$0].center)
+                    < distanceSquared(from: point, to: rects[$1].center)
+            }
+    }
+
+    private static func distanceSquared(
+        from first: CGPoint,
+        to second: CGPoint
+    ) -> CGFloat {
+        let dx = first.x - second.x
+        let dy = first.y - second.y
+        return dx * dx + dy * dy
+    }
+}
+
+private extension CGRect {
+    var center: CGPoint {
+        CGPoint(x: midX, y: midY)
+    }
 }
 
 enum OCRPanelGeometry {

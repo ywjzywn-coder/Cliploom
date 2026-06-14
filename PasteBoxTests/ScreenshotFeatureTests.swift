@@ -134,6 +134,36 @@ final class ScreenshotToolbarGeometryTests: XCTestCase {
         XCTAssertEqual(result.width, 18 * 11 / 14, accuracy: 0.001)
         XCTAssertEqual(result.height, 18, accuracy: 0.001)
     }
+
+    func testHitTestingAcceptsDoneButtonEdgePadding() {
+        let buttons = [
+            CGRect(x: 10, y: 8, width: 32, height: 32),
+            CGRect(x: 47, y: 8, width: 32, height: 32)
+        ]
+
+        XCTAssertEqual(
+            ScreenshotToolbarGeometry.hitIndex(
+                at: CGPoint(x: 81, y: 24),
+                in: buttons
+            ),
+            1
+        )
+    }
+
+    func testHitTestingChoosesNearestButtonInSpacing() {
+        let buttons = [
+            CGRect(x: 10, y: 8, width: 32, height: 32),
+            CGRect(x: 47, y: 8, width: 32, height: 32)
+        ]
+
+        XCTAssertEqual(
+            ScreenshotToolbarGeometry.hitIndex(
+                at: CGPoint(x: 45, y: 24),
+                in: buttons
+            ),
+            1
+        )
+    }
 }
 
 @MainActor

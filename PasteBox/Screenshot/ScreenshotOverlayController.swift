@@ -432,6 +432,7 @@ final class ScreenshotOverlayView: NSView {
     private var draftAnnotation: ScreenshotAnnotation?
     private var penPoints: [CGPoint] = []
     private var toolbarHitRegions: [ToolbarHitRegion] = []
+    private var toolbarFrame: CGRect?
     private var hoveredToolbarTitle: String?
     private var pointerLocation: CGPoint?
     private var trackingAreaReference: NSTrackingArea?
@@ -520,7 +521,7 @@ final class ScreenshotOverlayView: NSView {
             return
         }
 
-        let title = toolbarHitRegions.first { $0.rect.contains(point) }?.title
+        let title = toolbarItem(at: point)?.title
         if hoveredToolbarTitle != title {
             hoveredToolbarTitle = title
             needsDisplay = true
@@ -538,10 +539,14 @@ final class ScreenshotOverlayView: NSView {
             return
         }
 
-        if let item = toolbarHitRegions.first(where: { $0.rect.contains(point) }) {
+        if let item = toolbarItem(at: point) {
             if item.isEnabled {
                 performToolbarAction(item.action)
             }
+            return
+        }
+
+        if toolbarFrame?.contains(point) == true {
             return
         }
 
@@ -1146,6 +1151,7 @@ final class ScreenshotOverlayView: NSView {
         let preferredY = selection.minY - height - 9
         let y = preferredY >= 8 ? preferredY : min(selection.maxY + 9, bounds.height - height - 8)
         let toolbarRect = CGRect(x: x, y: y, width: totalWidth, height: height)
+        toolbarFrame = toolbarRect
 
         NSColor.windowBackgroundColor.withAlphaComponent(0.96).setFill()
         NSBezierPath(roundedRect: toolbarRect, xRadius: 11, yRadius: 11).fill()
@@ -1316,6 +1322,16 @@ final class ScreenshotOverlayView: NSView {
                 toolbarRect: toolbarRect
             )
         }
+    }
+
+    private func toolbarItem(at point: CGPoint) -> ToolbarHitRegion? {
+        guard let index = ScreenshotToolbarGeometry.hitIndex(
+            at: point,
+            in: toolbarHitRegions.map(\.rect)
+        ) else {
+            return nil
+        }
+        return toolbarHitRegions[index]
     }
 
     private func drawSymbolButton(

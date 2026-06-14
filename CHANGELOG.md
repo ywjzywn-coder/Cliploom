@@ -4,6 +4,12 @@ All notable changes to Cliploom are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- Screenshot toolbar buttons now accept clicks at their visual edges and
+  spacing, so the Done button no longer falls through as an outside-selection
+  click.
+
 ## [0.1.2] - 2026-06-14
 
 ### Added
