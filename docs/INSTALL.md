@@ -6,7 +6,7 @@
 
 1. 打开
    [Cliploom Releases](https://github.com/ywjzywn-coder/Cliploom/releases)。
-2. 展开 `Cliploom 1.0.0`。
+2. 展开最新稳定版本，例如 `Cliploom 1.1.0`。
 3. 下载文件名包含 `macOS-universal-unnotarized.dmg` 的安装包。
 4. 可以同时下载 `SHA256SUMS.txt` 校验文件。
 
@@ -82,7 +82,7 @@
 校验可以确认下载的 DMG 没有损坏。打开终端，进入下载目录后运行：
 
 ```bash
-shasum -a 256 Cliploom-1.0.0-macOS-universal-unnotarized.dmg
+shasum -a 256 Cliploom-1.1.0-macOS-universal-unnotarized.dmg
 ```
 
 成功标志：输出值与 Release 中 `SHA256SUMS.txt` 的值一致。

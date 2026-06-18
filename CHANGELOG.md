@@ -2,7 +2,7 @@
 
 All notable changes to Cliploom are documented here.
 
-## Unreleased
+## [1.1.0] - 2026-06-18
 
 ### Added
 
@@ -130,6 +130,7 @@ All notable changes to Cliploom are documented here.
 - A signed and notarized binary is not attached because the repository owner
   has not configured a Developer ID Application certificate in this environment.
 
+[1.1.0]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v1.1.0
 [1.0.0]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v1.0.0
 [0.1.2]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ywjzywn-coder/Cliploom/releases/tag/v0.1.1

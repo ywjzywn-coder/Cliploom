@@ -48,7 +48,7 @@ Cliploom 是一个常驻菜单栏的小工具，解决两个高频问题：
 当前稳定安装包：
 
 ```text
-Cliploom-1.0.0-macOS-universal-unnotarized.dmg
+Cliploom-1.1.0-macOS-universal-unnotarized.dmg
 ```
 
 成功标志：下载目录中出现 `.dmg` 文件。
