@@ -1,7 +1,5 @@
 import AppKit
-import CoreImage
 import CoreGraphics
-import CoreMedia
 import Foundation
 import ScreenCaptureKit
 
@@ -21,14 +19,15 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
     private var captureTask: Task<Void, Never>?
     private var captureGeneration: UInt = 0
     private var warmupTask: Task<Void, Never>?
-    private let frameCache = ScreenshotFrameCache()
     private var textRecognitionTask: Task<Void, Never>?
+    private var translationRecognitionTask: Task<Void, Never>?
     private var barcodeScanTask: Task<Void, Never>?
     private var textRecognitionGeneration: UInt = 0
+    private var translationRecognitionGeneration: UInt = 0
     private var barcodeScanGeneration: UInt = 0
+    private var savePanel: NSSavePanel?
 
     private static let shareableContentCacheLifetime: TimeInterval = 300
-    private static let frameCacheMaximumAge: TimeInterval = 0.5
 
     init(
         monitor: ClipboardMonitor,
@@ -51,17 +50,7 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         warmupTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
             defer { warmupTask = nil }
-            for screen in NSScreen.screens {
-                guard !Task.isCancelled,
-                      let displayID = displayID(for: screen),
-                      let target = try? await captureTarget(for: screen),
-                      !Task.isCancelled
-                else { continue }
-                try? await frameCache.start(
-                    displayID: displayID,
-                    target: target
-                )
-            }
+            _ = try? await shareableContent()
         }
     }
 
@@ -69,7 +58,6 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         warmupTask?.cancel()
         warmupTask = Task(priority: .utility) { [weak self] in
             guard let self else { return }
-            await frameCache.stopAll()
             invalidateShareableContent()
             warmupTask = nil
             prewarm()
@@ -89,14 +77,6 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
             return
         }
 
-        // Read the frame before closing an existing OCR or barcode result window.
-        // The next overlay can then show exactly what was visible when the hotkey fired.
-        let cachedImage = displayID(for: screen).flatMap { displayID in
-            frameCache.image(
-                for: displayID,
-                maximumAge: Self.frameCacheMaximumAge
-            )
-        }
         replaceActiveSession()
 
         isCapturing = true
@@ -106,12 +86,7 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
             guard let self else { return }
             do {
                 let windows = capturableWindows(on: screen)
-                let capturedImage: CGImage
-                if let cachedImage {
-                    capturedImage = cachedImage
-                } else {
-                    capturedImage = try await capture(screen: screen)
-                }
+                let capturedImage = try await capture(screen: screen)
                 guard !Task.isCancelled, generation == captureGeneration else {
                     return
                 }
@@ -157,24 +132,51 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         _ controller: ScreenshotOverlayController,
         didRequestSave data: Data
     ) {
+        guard savePanel == nil else { return }
+        controller.suspendForSystemPanel()
         let panel = NSSavePanel()
+        savePanel = panel
         panel.allowedContentTypes = [.png]
         panel.canCreateDirectories = true
         panel.nameFieldStringValue = "Cliploom-\(Self.fileTimestamp()).png"
-        let response = panel.runModal()
+        NSApp.activate(ignoringOtherApps: true)
+        panel.begin { [weak self, weak controller, panel] response in
+            Task { @MainActor in
+                self?.completeSaveRequest(
+                    controller: controller,
+                    panel: panel,
+                    data: data,
+                    response: response
+                )
+            }
+        }
+    }
+
+    private func completeSaveRequest(
+        controller: ScreenshotOverlayController?,
+        panel: NSSavePanel,
+        data: Data,
+        response: NSApplication.ModalResponse
+    ) {
+        guard savePanel === panel else { return }
+        savePanel = nil
+        guard let controller, overlayController === controller else { return }
 
         guard response == .OK, let url = panel.url else {
+            controller.restoreAfterSystemPanel()
             return
         }
         do {
             try data.write(to: url, options: .atomic)
             guard commitImage(data) else {
+                controller.restoreAfterSystemPanel()
                 showStatus(String(localized: "screenshot.copy.failed"))
                 return
             }
             finishSession()
             showStatus(String(localized: "screenshot.saved"))
         } catch {
+            controller.restoreAfterSystemPanel()
             showStatus(String(localized: "screenshot.save.failed"))
         }
     }
@@ -231,14 +233,14 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
                 }
             }
             do {
-                let text = try await TextRecognizer.recognize(cgImage: image)
+                let result = try await TextRecognizer.recognize(cgImage: image)
                 guard !Task.isCancelled,
                       textRecognitionGeneration == generation,
                       overlayController === controller
                 else {
                     return
                 }
-                controller.showRecognizedText(text)
+                controller.showRecognizedText(result)
             } catch {
                 guard !Task.isCancelled,
                       textRecognitionGeneration == generation,
@@ -248,6 +250,43 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
                 }
                 controller.showTextRecognitionMessage(
                     String(localized: "screenshot.ocr.failed")
+                )
+            }
+        }
+    }
+
+    func screenshotOverlay(
+        _ controller: ScreenshotOverlayController,
+        didRequestTranslate image: CGImage
+    ) {
+        translationRecognitionGeneration &+= 1
+        let generation = translationRecognitionGeneration
+        translationRecognitionTask?.cancel()
+        translationRecognitionTask = Task { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            defer {
+                if translationRecognitionGeneration == generation {
+                    translationRecognitionTask = nil
+                }
+            }
+            do {
+                let result = try await TextRecognizer.recognize(cgImage: image)
+                guard !Task.isCancelled,
+                      translationRecognitionGeneration == generation,
+                      overlayController === controller
+                else {
+                    return
+                }
+                controller.showTranslationSource(result.text)
+            } catch {
+                guard !Task.isCancelled,
+                      translationRecognitionGeneration == generation,
+                      overlayController === controller
+                else {
+                    return
+                }
+                controller.showTranslationMessage(
+                    String(localized: "screenshot.translate.ocrFailed")
                 )
             }
         }
@@ -265,9 +304,12 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
 
     func screenshotOverlay(
         _ controller: ScreenshotOverlayController,
-        didRequestCopyBarcode result: BarcodeResult
+        didRequestCopyTranslation text: String
     ) {
-        commitBarcodeText(result)
+        commitRecognizedText(
+            text,
+            successMessage: String(localized: "screenshot.translate.copied")
+        )
     }
 
     func screenshotOverlay(
@@ -460,13 +502,6 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         }
     }
 
-    private func commitBarcodeText(_ result: BarcodeResult) {
-        commitRecognizedText(
-            result.payload,
-            successMessage: String(localized: "screenshot.scan.copied")
-        )
-    }
-
     private func commitRecognizedText(
         _ text: String,
         successMessage: String
@@ -487,9 +522,14 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         textRecognitionGeneration &+= 1
         textRecognitionTask?.cancel()
         textRecognitionTask = nil
+        translationRecognitionGeneration &+= 1
+        translationRecognitionTask?.cancel()
+        translationRecognitionTask = nil
         barcodeScanGeneration &+= 1
         barcodeScanTask?.cancel()
         barcodeScanTask = nil
+        savePanel?.orderOut(nil)
+        savePanel = nil
         overlayController?.close()
         overlayController = nil
     }
@@ -516,104 +556,4 @@ private enum ScreenshotError: Error {
 private struct CaptureTarget {
     let filter: SCContentFilter
     let configuration: SCStreamConfiguration
-}
-
-@MainActor
-private final class ScreenshotFrameCache {
-    private struct Entry {
-        let stream: SCStream
-        let receiver: ScreenshotFrameReceiver
-    }
-
-    private var entries: [CGDirectDisplayID: Entry] = [:]
-
-    func start(
-        displayID: CGDirectDisplayID,
-        target: CaptureTarget
-    ) async throws {
-        guard entries[displayID] == nil else { return }
-
-        let configuration = SCStreamConfiguration()
-        configuration.width = target.configuration.width
-        configuration.height = target.configuration.height
-        configuration.captureResolution = .best
-        configuration.showsCursor = false
-        configuration.capturesAudio = false
-        configuration.queueDepth = 2
-        configuration.pixelFormat = kCVPixelFormatType_32BGRA
-        configuration.minimumFrameInterval = CMTime(value: 1, timescale: 15)
-
-        let receiver = ScreenshotFrameReceiver()
-        let stream = SCStream(
-            filter: target.filter,
-            configuration: configuration,
-            delegate: nil
-        )
-        try stream.addStreamOutput(
-            receiver,
-            type: .screen,
-            sampleHandlerQueue: receiver.queue
-        )
-        try await stream.startCapture()
-        entries[displayID] = Entry(stream: stream, receiver: receiver)
-    }
-
-    func image(
-        for displayID: CGDirectDisplayID,
-        maximumAge: TimeInterval
-    ) -> CGImage? {
-        entries[displayID]?.receiver.image(maximumAge: maximumAge)
-    }
-
-    func stopAll() async {
-        let currentEntries = entries.values
-        entries.removeAll()
-        for entry in currentEntries {
-            try? await entry.stream.stopCapture()
-        }
-    }
-}
-
-private final class ScreenshotFrameReceiver: NSObject, SCStreamOutput, @unchecked Sendable {
-    let queue = DispatchQueue(
-        label: "com.local.PasteBox.screenshot-frame-cache",
-        qos: .userInteractive
-    )
-
-    private static let context = CIContext(options: [.cacheIntermediates: false])
-    private let lock = NSLock()
-    private var pixelBuffer: CVPixelBuffer?
-    private var receivedAt: Date?
-
-    func stream(
-        _ stream: SCStream,
-        didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
-        of type: SCStreamOutputType
-    ) {
-        guard type == .screen,
-              sampleBuffer.isValid,
-              CMSampleBufferDataIsReady(sampleBuffer),
-              let imageBuffer = sampleBuffer.imageBuffer
-        else { return }
-
-        lock.lock()
-        pixelBuffer = imageBuffer
-        receivedAt = .now
-        lock.unlock()
-    }
-
-    func image(maximumAge: TimeInterval) -> CGImage? {
-        lock.lock()
-        let buffer = pixelBuffer
-        let date = receivedAt
-        lock.unlock()
-
-        guard let buffer,
-              let date,
-              Date().timeIntervalSince(date) <= maximumAge
-        else { return nil }
-
-        let image = CIImage(cvPixelBuffer: buffer)
-        return Self.context.createCGImage(image, from: image.extent)
-    }
 }

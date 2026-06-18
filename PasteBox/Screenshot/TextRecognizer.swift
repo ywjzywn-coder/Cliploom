@@ -2,6 +2,12 @@ import AppKit
 import CoreGraphics
 import Foundation
 import Vision
+import VisionKit
+
+struct TextRecognitionResult {
+    let text: String
+    let imageAnalysis: ImageAnalysis?
+}
 
 enum TextRecognizer {
     private static let warmupTask = Task.detached(priority: .utility) {
@@ -16,6 +22,15 @@ enum TextRecognizer {
             bitmapInfo: CGImageAlphaInfo.none.rawValue
         ), let image = context.makeImage()
         else { return }
+        if ImageAnalyzer.isSupported {
+            let analyzer = ImageAnalyzer()
+            let configuration = ImageAnalyzer.Configuration([.text])
+            _ = try? await analyzer.analyze(
+                image,
+                orientation: .up,
+                configuration: configuration
+            )
+        }
         _ = try? performRecognition(on: image)
     }
 
@@ -23,10 +38,42 @@ enum TextRecognizer {
         _ = warmupTask
     }
 
-    static func recognize(cgImage: CGImage) async throws -> String {
+    static func recognize(
+        cgImage: CGImage,
+        includeLiveTextAnalysis: Bool = true
+    ) async throws -> TextRecognitionResult {
         await warmupTask.value
+
+        if includeLiveTextAnalysis, ImageAnalyzer.isSupported {
+            do {
+                let analyzer = ImageAnalyzer()
+                let configuration = ImageAnalyzer.Configuration([.text])
+                let analysis = try await analyzer.analyze(
+                    cgImage,
+                    orientation: .up,
+                    configuration: configuration
+                )
+                let text = analysis.transcript.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                )
+                if !text.isEmpty {
+                    return TextRecognitionResult(
+                        text: text,
+                        imageAnalysis: analysis
+                    )
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Fall back to the existing Vision OCR path below.
+            }
+        }
+
         return try await Task.detached(priority: .userInitiated) {
-            try performRecognition(on: cgImage)
+            TextRecognitionResult(
+                text: try performRecognition(on: cgImage),
+                imageAnalysis: nil
+            )
         }.value
     }
 

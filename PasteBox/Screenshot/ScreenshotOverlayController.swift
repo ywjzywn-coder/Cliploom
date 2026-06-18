@@ -27,11 +27,15 @@ protocol ScreenshotOverlayControllerDelegate: AnyObject {
     )
     func screenshotOverlay(
         _ controller: ScreenshotOverlayController,
+        didRequestTranslate image: CGImage
+    )
+    func screenshotOverlay(
+        _ controller: ScreenshotOverlayController,
         didRequestCopyRecognizedText text: String
     )
     func screenshotOverlay(
         _ controller: ScreenshotOverlayController,
-        didRequestCopyBarcode result: BarcodeResult
+        didRequestCopyTranslation text: String
     )
     func screenshotOverlay(
         _ controller: ScreenshotOverlayController,
@@ -50,6 +54,7 @@ final class ScreenshotOverlayController: NSWindowController {
     private let overlayView: ScreenshotOverlayView
     private var resultPanel: NSPanel?
     private var ocrResultView: ScreenshotOCRPanelView?
+    private var translationResultView: ScreenshotTranslationPanelView?
     private var barcodeResultView: ScreenshotBarcodePanelView?
     private var keyMonitor: Any?
     private var isCancelling = false
@@ -102,26 +107,8 @@ final class ScreenshotOverlayController: NSWindowController {
         overlayView.onRecognizeText = { [weak self] in
             self?.requestTextRecognition()
         }
-        overlayView.onCopyRecognizedText = { [weak self] text in
-            guard let self else { return }
-            self.delegate?.screenshotOverlay(
-                self,
-                didRequestCopyRecognizedText: text
-            )
-        }
-        overlayView.onCopyBarcode = { [weak self] result in
-            guard let self else { return }
-            self.delegate?.screenshotOverlay(
-                self,
-                didRequestCopyBarcode: result
-            )
-        }
-        overlayView.onOpenBarcode = { [weak self] result in
-            guard let self else { return }
-            self.delegate?.screenshotOverlay(
-                self,
-                didRequestOpenBarcode: result
-            )
+        overlayView.onTranslate = { [weak self] in
+            self?.requestTranslation()
         }
         overlayView.onCopyColor = { [weak self] value in
             guard let self else { return false }
@@ -150,19 +137,28 @@ final class ScreenshotOverlayController: NSWindowController {
         resultPanel?.orderOut(nil)
         resultPanel = nil
         ocrResultView = nil
+        translationResultView = nil
         barcodeResultView = nil
     }
 
-    func setTextRecognitionInProgress(_ isInProgress: Bool) {
-        overlayView.isRecognizingText = isInProgress
+    func suspendForSystemPanel() {
+        removeKeyMonitor()
+        window?.orderOut(nil)
     }
 
-    func showRecognizedText(_ text: String) {
+    func restoreAfterSystemPanel() {
+        installKeyMonitor()
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+        window?.makeFirstResponder(overlayView)
+    }
+
+    func showRecognizedText(_ result: TextRecognitionResult) {
         let panel = ensureOCRResultPanel()
-        if text.isEmpty {
+        if result.text.isEmpty {
             panel.showMessage(String(localized: "screenshot.ocr.empty"))
         } else {
-            panel.showResult(text)
+            panel.showResult(result)
         }
     }
 
@@ -170,17 +166,32 @@ final class ScreenshotOverlayController: NSWindowController {
         ensureOCRResultPanel().showMessage(message)
     }
 
+    func showTranslationSource(_ text: String) {
+        let panel = ensureTranslationResultPanel()
+        if text.isEmpty {
+            panel.showMessage(String(localized: "screenshot.translate.empty"))
+        } else {
+            panel.translate(text)
+        }
+    }
+
+    func showTranslationMessage(_ message: String) {
+        ensureTranslationResultPanel().showMessage(message)
+    }
+
     func showBarcodeResults(_ results: [BarcodeResult]) {
-        let panel = ensureBarcodeResultPanel()
+        guard let panel = barcodeResultView else { return }
         if results.isEmpty {
-            panel.showMessage(String(localized: "screenshot.scan.empty"))
+            panel.showUnsupportedResult(
+                String(localized: "screenshot.scan.empty")
+            )
         } else {
             panel.showResults(results)
         }
     }
 
     func showBarcodeMessage(_ message: String) {
-        ensureBarcodeResultPanel().showMessage(message)
+        barcodeResultView?.showMessage(message)
     }
 
     private func requestTextRecognition() {
@@ -191,9 +202,19 @@ final class ScreenshotOverlayController: NSWindowController {
         delegate?.screenshotOverlay(self, didRequestRecognizeText: image)
     }
 
+    private func requestTranslation() {
+        guard let image = croppedImage() else { return }
+        let panel = ensureTranslationResultPanel()
+        panel.showPreview(image)
+        panel.showRecognizing()
+        delegate?.screenshotOverlay(self, didRequestTranslate: image)
+    }
+
     private func requestBarcodeScan() {
         guard let image = croppedImage() else { return }
-        ensureBarcodeResultPanel().showLoading()
+        let panel = ensureBarcodeResultPanel(previewImage: image)
+        panel.showPreview(image)
+        panel.showLoading()
         delegate?.screenshotOverlay(self, didRequestScan: image)
     }
 
@@ -231,23 +252,29 @@ final class ScreenshotOverlayController: NSWindowController {
         return view
     }
 
-    private func ensureBarcodeResultPanel() -> ScreenshotBarcodePanelView {
+    private func ensureBarcodeResultPanel(
+        previewImage: CGImage
+    ) -> ScreenshotBarcodePanelView {
         if let barcodeResultView {
             return barcodeResultView
         }
         dismissResultPanel()
+        let maximumSize = session.screen.visibleFrame
+            .insetBy(dx: 24, dy: 24)
+            .size
+        let preferredSize = BarcodePanelGeometry.preferredSize(
+            imageSize: CGSize(
+                width: previewImage.width,
+                height: previewImage.height
+            ),
+            selectionSize: session.selection?.standardized.size ?? .zero,
+            maximum: maximumSize
+        )
         let view = ScreenshotBarcodePanelView(
-            frame: CGRect(x: 0, y: 0, width: 400, height: 500)
+            frame: CGRect(origin: .zero, size: preferredSize)
         )
         view.onRetry = { [weak self] in
             self?.requestBarcodeScan()
-        }
-        view.onCopy = { [weak self] result in
-            guard let self else { return }
-            self.delegate?.screenshotOverlay(
-                self,
-                didRequestCopyBarcode: result
-            )
         }
         view.onOpen = { [weak self] result in
             guard let self else { return }
@@ -262,6 +289,40 @@ final class ScreenshotOverlayController: NSWindowController {
         }
         presentResultPanel(contentView: view)
         barcodeResultView = view
+        return view
+    }
+
+    private func ensureTranslationResultPanel() -> ScreenshotTranslationPanelView {
+        if let translationResultView {
+            return translationResultView
+        }
+        dismissResultPanel()
+        let maximumSize = session.screen.visibleFrame
+            .insetBy(dx: 24, dy: 24)
+            .size
+        let preferredSize = OCRPanelGeometry.preferredSize(
+            selection: session.selection?.standardized.size ?? .zero,
+            maximum: maximumSize
+        )
+        let view = ScreenshotTranslationPanelView(
+            frame: CGRect(origin: .zero, size: preferredSize)
+        )
+        view.onRetry = { [weak self] in
+            self?.requestTranslation()
+        }
+        view.onCopy = { [weak self] text in
+            guard let self else { return }
+            self.delegate?.screenshotOverlay(
+                self,
+                didRequestCopyTranslation: text
+            )
+        }
+        view.onClose = { [weak self] in
+            guard let self else { return }
+            self.delegate?.screenshotOverlayDidCancel(self)
+        }
+        presentResultPanel(contentView: view)
+        translationResultView = view
         return view
     }
 
@@ -335,6 +396,7 @@ final class ScreenshotOverlayController: NSWindowController {
         resultPanel?.orderOut(nil)
         resultPanel = nil
         ocrResultView = nil
+        translationResultView = nil
         barcodeResultView = nil
     }
 
@@ -389,6 +451,7 @@ private enum ToolbarAction {
     case cancel
     case done
     case recognizeText
+    case translate
     case scan
 }
 
@@ -416,17 +479,10 @@ final class ScreenshotOverlayView: NSView {
     var onSave: (() -> Void)?
     var onScan: (() -> Void)?
     var onRecognizeText: (() -> Void)?
-    var onCopyRecognizedText: ((String) -> Void)?
-    var onCopyBarcode: ((BarcodeResult) -> Void)?
-    var onOpenBarcode: ((BarcodeResult) -> Void)?
+    var onTranslate: (() -> Void)?
     var onCopyColor: ((String) -> Bool)?
-    var isRecognizingText = false {
-        didSet { needsDisplay = true }
-    }
 
     private var backgroundImage: NSImage?
-    private var ocrPanel: ScreenshotOCRPanelView?
-    private var barcodePanel: ScreenshotBarcodePanelView?
     private var dragMode: OverlayDragMode = .none
     private var mouseDownPoint: CGPoint = .zero
     private var draftAnnotation: ScreenshotAnnotation?
@@ -435,6 +491,7 @@ final class ScreenshotOverlayView: NSView {
     private var toolbarFrame: CGRect?
     private var hoveredToolbarTitle: String?
     private var pointerLocation: CGPoint?
+    private(set) var isColorInspectorSuppressed = false
     private var trackingAreaReference: NSTrackingArea?
     private var copiedColorValue: String?
     private var colorCopyResetWorkItem: DispatchWorkItem?
@@ -481,12 +538,6 @@ final class ScreenshotOverlayView: NSView {
         drawColorInspectorIfNeeded()
     }
 
-    override func layout() {
-        super.layout()
-        positionOCRPanel()
-        positionBarcodePanel()
-    }
-
     override func updateTrackingAreas() {
         if let trackingAreaReference {
             removeTrackingArea(trackingAreaReference)
@@ -504,17 +555,20 @@ final class ScreenshotOverlayView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         pointerLocation = clamped(convert(event.locationInWindow, from: nil))
+        isColorInspectorSuppressed = false
         needsDisplay = true
     }
 
     override func mouseExited(with event: NSEvent) {
         pointerLocation = nil
+        isColorInspectorSuppressed = true
         needsDisplay = true
     }
 
     override func mouseMoved(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         pointerLocation = clamped(point)
+        isColorInspectorSuppressed = false
         if session.selection == nil {
             session.hoveredWindow = session.window(at: point)
             needsDisplay = true
@@ -532,6 +586,8 @@ final class ScreenshotOverlayView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         mouseDownPoint = point
         pointerLocation = nil
+        isColorInspectorSuppressed = true
+        needsDisplay = true
 
         if event.clickCount == 2,
            session.selection?.contains(point) == true {
@@ -583,6 +639,7 @@ final class ScreenshotOverlayView: NSView {
     override func mouseDragged(with event: NSEvent) {
         let point = clamped(convert(event.locationInWindow, from: nil))
         pointerLocation = nil
+        isColorInspectorSuppressed = true
         switch dragMode {
         case .none:
             break
@@ -628,7 +685,8 @@ final class ScreenshotOverlayView: NSView {
             break
         }
         dragMode = .none
-        pointerLocation = point
+        pointerLocation = nil
+        isColorInspectorSuppressed = true
         if session.selection?.contains(point) == false, session.selection != nil {
             session.selection = clamp(session.selection!, to: bounds)
         }
@@ -695,167 +753,12 @@ final class ScreenshotOverlayView: NSView {
             onFinish?()
         case .recognizeText:
             onRecognizeText?()
+        case .translate:
+            onTranslate?()
         case .scan:
             onScan?()
         }
         needsDisplay = true
-    }
-
-    func showTextRecognitionLoading() {
-        isRecognizingText = true
-        let panel = ensureOCRPanel()
-        panel.showLoading()
-        positionOCRPanel()
-    }
-
-    func showRecognizedText(_ text: String) {
-        isRecognizingText = false
-        let panel = ensureOCRPanel()
-        if text.isEmpty {
-            panel.showMessage(String(localized: "screenshot.ocr.empty"))
-        } else {
-            panel.showResult(text)
-        }
-        positionOCRPanel()
-    }
-
-    func showTextRecognitionMessage(_ message: String) {
-        isRecognizingText = false
-        let panel = ensureOCRPanel()
-        panel.showMessage(message)
-        positionOCRPanel()
-    }
-
-    func showBarcodeLoading() {
-        let panel = ensureBarcodePanel()
-        panel.showLoading()
-        positionBarcodePanel()
-    }
-
-    func showBarcodeResults(_ results: [BarcodeResult]) {
-        let panel = ensureBarcodePanel()
-        if results.isEmpty {
-            panel.showMessage(String(localized: "screenshot.scan.empty"))
-        } else {
-            panel.showResults(results)
-        }
-        positionBarcodePanel()
-    }
-
-    func showBarcodeMessage(_ message: String) {
-        let panel = ensureBarcodePanel()
-        panel.showMessage(message)
-        positionBarcodePanel()
-    }
-
-    private func ensureOCRPanel() -> ScreenshotOCRPanelView {
-        if let ocrPanel {
-            return ocrPanel
-        }
-        barcodePanel?.removeFromSuperview()
-        barcodePanel = nil
-        let panel = ScreenshotOCRPanelView()
-        panel.onRetry = { [weak self] in
-            self?.onRecognizeText?()
-        }
-        panel.onCopy = { [weak self] text in
-            self?.onCopyRecognizedText?(text)
-        }
-        panel.onClose = { [weak self] in
-            guard let self else { return }
-            self.ocrPanel?.removeFromSuperview()
-            self.ocrPanel = nil
-            self.window?.makeFirstResponder(self)
-        }
-        addSubview(panel)
-        ocrPanel = panel
-        return panel
-    }
-
-    private func ensureBarcodePanel() -> ScreenshotBarcodePanelView {
-        if let barcodePanel {
-            return barcodePanel
-        }
-        ocrPanel?.removeFromSuperview()
-        ocrPanel = nil
-        let panel = ScreenshotBarcodePanelView()
-        panel.onRetry = { [weak self] in
-            self?.onScan?()
-        }
-        panel.onCopy = { [weak self] result in
-            self?.onCopyBarcode?(result)
-        }
-        panel.onOpen = { [weak self] result in
-            self?.onOpenBarcode?(result)
-        }
-        panel.onClose = { [weak self] in
-            guard let self else { return }
-            self.barcodePanel?.removeFromSuperview()
-            self.barcodePanel = nil
-            self.window?.makeFirstResponder(self)
-        }
-        addSubview(panel)
-        barcodePanel = panel
-        return panel
-    }
-
-    private func positionOCRPanel() {
-        guard let panel = ocrPanel else { return }
-        let margin: CGFloat = 16
-        let gap: CGFloat = 12
-        let panelWidth = min(380, max(bounds.width - margin * 2, 280))
-        let panelHeight = min(460, max(bounds.height - margin * 2, 300))
-        let selection = session?.selection ?? bounds.insetBy(dx: margin, dy: margin)
-
-        let rightX = selection.maxX + gap
-        let leftX = selection.minX - gap - panelWidth
-        let x: CGFloat
-        if rightX + panelWidth <= bounds.maxX - margin {
-            x = rightX
-        } else if leftX >= bounds.minX + margin {
-            x = leftX
-        } else {
-            x = bounds.maxX - panelWidth - margin
-        }
-        let y = min(
-            max(selection.midY - panelHeight / 2, bounds.minY + margin),
-            bounds.maxY - panelHeight - margin
-        )
-        panel.frame = CGRect(
-            x: x,
-            y: y,
-            width: panelWidth,
-            height: panelHeight
-        )
-    }
-
-    private func positionBarcodePanel() {
-        guard let panel = barcodePanel else { return }
-        panel.frame = sidePanelFrame()
-    }
-
-    private func sidePanelFrame() -> CGRect {
-        let margin: CGFloat = 16
-        let gap: CGFloat = 12
-        let panelWidth = min(380, max(bounds.width - margin * 2, 280))
-        let panelHeight = min(460, max(bounds.height - margin * 2, 300))
-        let selection = session?.selection ?? bounds.insetBy(dx: margin, dy: margin)
-
-        let rightX = selection.maxX + gap
-        let leftX = selection.minX - gap - panelWidth
-        let x: CGFloat
-        if rightX + panelWidth <= bounds.maxX - margin {
-            x = rightX
-        } else if leftX >= bounds.minX + margin {
-            x = leftX
-        } else {
-            x = bounds.maxX - panelWidth - margin
-        }
-        let y = min(
-            max(selection.midY - panelHeight / 2, bounds.minY + margin),
-            bounds.maxY - panelHeight - margin
-        )
-        return CGRect(x: x, y: y, width: panelWidth, height: panelHeight)
     }
 
     private func makeAnnotation(from start: CGPoint, to end: CGPoint) -> ScreenshotAnnotation? {
@@ -1027,8 +930,7 @@ final class ScreenshotOverlayView: NSView {
 
     private func drawColorInspectorIfNeeded() {
         guard case .none = dragMode,
-              ocrPanel == nil,
-              barcodePanel == nil,
+              !isColorInspectorSuppressed,
               let pointerLocation,
               !toolbarHitRegions.contains(where: { $0.rect.contains(pointerLocation) }),
               let sample = pixelSampler.sample(
@@ -1140,12 +1042,12 @@ final class ScreenshotOverlayView: NSView {
         }
         let showsColors = session.tool.supportsColor
         let showsLineWidths = session.tool.supportsLineWidth
-        let buttonSize: CGFloat = 32
-        let spacing: CGFloat = 5
+        let buttonSize: CGFloat = 30
+        let spacing: CGFloat = 4
         let toolWidth = CGFloat(toolItems.count) * (buttonSize + spacing)
         let colorWidth = showsColors ? CGFloat(colors.count) * 25 + 6 : 0
         let lineWidthWidth: CGFloat = showsLineWidths ? 96 : 0
-        let actionWidth: CGFloat = 6 * (buttonSize + spacing)
+        let actionWidth: CGFloat = 7 * (buttonSize + spacing)
         let totalWidth = 18 + toolWidth + colorWidth + lineWidthWidth + actionWidth
         let height: CGFloat = 48
         let x = min(max(selection.midX - totalWidth / 2, 8), bounds.width - totalWidth - 8)
@@ -1247,14 +1149,17 @@ final class ScreenshotOverlayView: NSView {
         let actions: [(ToolbarAction, String, NSColor, String, Bool)] = [
             (
                 .recognizeText,
-                isRecognizingText ? "hourglass" : "text.viewfinder",
+                "text.viewfinder",
                 .labelColor,
-                String(
-                    localized: isRecognizingText
-                        ? "screenshot.ocr.processing"
-                        : "screenshot.action.ocr"
-                ),
-                !isRecognizingText
+                String(localized: "screenshot.action.ocr"),
+                true
+            ),
+            (
+                .translate,
+                "translate",
+                .labelColor,
+                String(localized: "screenshot.action.translate"),
+                true
             ),
             (
                 .scan,

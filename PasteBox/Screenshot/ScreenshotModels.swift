@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import NaturalLanguage
 
 enum ScreenshotTool: String, CaseIterable {
     case pointer
@@ -133,6 +134,22 @@ enum ScreenshotCaptureGeometry {
             )
         }
         return modePixelSize
+    }
+}
+
+enum ScreenshotTranslationDirection {
+    static func targetIdentifier(
+        for text: String,
+        dominantLanguage: NLLanguage? = nil
+    ) -> String {
+        let language = dominantLanguage
+            ?? NLLanguageRecognizer.dominantLanguage(for: text)
+        switch language {
+        case .simplifiedChinese?, .traditionalChinese?:
+            return "en"
+        default:
+            return "zh-Hans"
+        }
     }
 }
 
@@ -287,6 +304,59 @@ private extension CGRect {
     }
 }
 
+enum ScreenshotPreviewGeometry {
+    static func aspectFitRect(
+        contentSize: CGSize,
+        in bounds: CGRect
+    ) -> CGRect {
+        guard contentSize.width > 0,
+              contentSize.height > 0,
+              bounds.width > 0,
+              bounds.height > 0
+        else { return .zero }
+
+        let scale = min(
+            bounds.width / contentSize.width,
+            bounds.height / contentSize.height
+        )
+        let size = CGSize(
+            width: contentSize.width * scale,
+            height: contentSize.height * scale
+        )
+        return CGRect(
+            x: bounds.midX - size.width / 2,
+            y: bounds.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    static func center(
+        of normalizedBoundingBox: CGRect,
+        in imageRect: CGRect
+    ) -> CGPoint {
+        CGPoint(
+            x: imageRect.minX + normalizedBoundingBox.midX * imageRect.width,
+            y: imageRect.minY + normalizedBoundingBox.midY * imageRect.height
+        )
+    }
+
+    static func aspectFitUnitRect(
+        contentSize: CGSize,
+        in bounds: CGRect
+    ) -> CGRect {
+        let imageRect = aspectFitRect(contentSize: contentSize, in: bounds)
+        guard bounds.width > 0, bounds.height > 0 else { return .zero }
+
+        return CGRect(
+            x: (imageRect.minX - bounds.minX) / bounds.width,
+            y: (imageRect.minY - bounds.minY) / bounds.height,
+            width: imageRect.width / bounds.width,
+            height: imageRect.height / bounds.height
+        )
+    }
+}
+
 enum OCRPanelGeometry {
     static func preferredSize(
         selection: CGSize,
@@ -298,6 +368,39 @@ enum OCRPanelGeometry {
         return CGSize(
             width: min(previewWidth + resultWidth + 72, maximum.width),
             height: min(max(460, selection.height + 116), maximum.height)
+        )
+    }
+}
+
+enum BarcodePanelGeometry {
+    private static let horizontalChrome: CGFloat = 28
+    private static let verticalChrome: CGFloat = 108
+    private static let minimumWidth: CGFloat = 420
+    private static let minimumHeight: CGFloat = 340
+    private static let preferredMaximumWidth: CGFloat = 960
+
+    static func preferredSize(
+        imageSize: CGSize,
+        selectionSize: CGSize,
+        maximum: CGSize
+    ) -> CGSize {
+        guard maximum.width > 0, maximum.height > 0 else { return .zero }
+
+        let width = min(
+            max(minimumWidth, selectionSize.width + horizontalChrome),
+            min(preferredMaximumWidth, maximum.width)
+        )
+        let previewWidth = max(width - horizontalChrome, 1)
+        let aspectRatio = imageSize.width / max(imageSize.height, 1)
+        let previewHeight = previewWidth / max(aspectRatio, 0.01)
+        let height = min(
+            max(minimumHeight, previewHeight + verticalChrome),
+            maximum.height
+        )
+
+        return CGSize(
+            width: min(width, maximum.width),
+            height: height
         )
     }
 }

@@ -1,16 +1,286 @@
 import AppKit
 
+private enum BarcodeMarkerKind {
+    case link
+    case unsupported
+}
+
+private final class BarcodeMarkerButton: NSButton {
+    let result: BarcodeResult?
+    let markerKind: BarcodeMarkerKind
+
+    init(
+        result: BarcodeResult?,
+        kind: BarcodeMarkerKind,
+        target: AnyObject?,
+        action: Selector?
+    ) {
+        self.result = result
+        markerKind = kind
+        super.init(frame: .zero)
+
+        image = NSImage(
+            systemSymbolName: kind == .link ? "arrow.up.right" : "nosign",
+            accessibilityDescription: String(
+                localized: kind == .link
+                    ? "screenshot.scan.open"
+                    : "screenshot.scan.unsupported"
+            )
+        )
+        imagePosition = .imageOnly
+        imageScaling = .scaleProportionallyDown
+        bezelStyle = .circular
+        isBordered = false
+        contentTintColor = .white
+        identifier = NSUserInterfaceItemIdentifier(
+            kind == .link ? "barcode.link" : "barcode.unsupported"
+        )
+
+        if kind == .link {
+            self.target = target
+            self.action = action
+            toolTip = result?.webURL?.host()
+        } else {
+            isEnabled = false
+            toolTip = String(localized: "screenshot.scan.unsupported")
+        }
+
+        wantsLayer = true
+        layer?.backgroundColor = (
+            kind == .link ? NSColor.controlAccentColor : NSColor.systemRed
+        ).cgColor
+        layer?.cornerRadius = 20
+        layer?.borderWidth = 2.5
+        layer?.borderColor = NSColor.white.cgColor
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = 0.78
+        layer?.shadowRadius = 8
+        layer?.shadowOffset = .zero
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func startAttentionAnimation(delay: TimeInterval) {
+        guard markerKind == .link,
+              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        else {
+            return
+        }
+
+        let pulse = CABasicAnimation(keyPath: "transform.scale")
+        pulse.fromValue = 0.92
+        pulse.toValue = 1.13
+        pulse.duration = 0.78
+        pulse.beginTime = CACurrentMediaTime() + delay
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer?.add(pulse, forKey: "cliploom.linkPulse")
+
+        let glow = CABasicAnimation(keyPath: "shadowOpacity")
+        glow.fromValue = 0.38
+        glow.toValue = 0.95
+        glow.duration = 0.78
+        glow.beginTime = CACurrentMediaTime() + delay
+        glow.autoreverses = true
+        glow.repeatCount = .infinity
+        glow.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer?.add(glow, forKey: "cliploom.linkGlow")
+    }
+}
+
+@MainActor
+private final class BarcodePreviewView: NSView {
+    var onOpen: ((BarcodeResult) -> Void)?
+
+    private let imageView = NSImageView()
+    private let dimmingView = NSView()
+    private var markerButtons: [BarcodeMarkerButton] = []
+
+    var isDimmed: Bool {
+        !dimmingView.isHidden
+    }
+
+    var animatedLinkButtonCount: Int {
+        markerButtons.filter {
+            $0.layer?.animation(forKey: "cliploom.linkPulse") != nil
+        }.count
+    }
+
+    var unsupportedMarkerCount: Int {
+        markerButtons.filter { $0.markerKind == .unsupported }.count
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: NSView.noIntrinsicMetric
+        )
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.cornerRadius = 10
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.masksToBounds = true
+
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.imageAlignment = .alignCenter
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+
+        dimmingView.wantsLayer = true
+        dimmingView.layer?.backgroundColor = NSColor.black
+            .withAlphaComponent(0.48)
+            .cgColor
+        dimmingView.isHidden = true
+        dimmingView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(dimmingView)
+
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageView.topAnchor.constraint(equalTo: topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            dimmingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            dimmingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            dimmingView.topAnchor.constraint(equalTo: topAnchor),
+            dimmingView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        positionMarkerButtons()
+    }
+
+    func showImage(_ image: CGImage) {
+        imageView.image = NSImage(
+            cgImage: image,
+            size: NSSize(width: image.width, height: image.height)
+        )
+        clearResults()
+    }
+
+    func showResults(_ results: [BarcodeResult]) {
+        clearResults()
+
+        var linkIndex = 0
+        for result in results {
+            let kind: BarcodeMarkerKind = result.webURL == nil
+                ? .unsupported
+                : .link
+            let button = BarcodeMarkerButton(
+                result: result,
+                kind: kind,
+                target: self,
+                action: kind == .link ? #selector(openLink(_:)) : nil
+            )
+            addSubview(button)
+            markerButtons.append(button)
+            if kind == .link {
+                button.startAttentionAnimation(
+                    delay: TimeInterval(linkIndex) * 0.12
+                )
+                linkIndex += 1
+            }
+        }
+        dimmingView.isHidden = markerButtons.isEmpty
+        positionMarkerButtons()
+    }
+
+    func showUnsupportedMarker() {
+        clearResults()
+        let button = BarcodeMarkerButton(
+            result: nil,
+            kind: .unsupported,
+            target: nil,
+            action: nil
+        )
+        addSubview(button)
+        markerButtons = [button]
+        dimmingView.isHidden = false
+        positionMarkerButtons()
+    }
+
+    func clearResults() {
+        for button in markerButtons {
+            button.layer?.removeAllAnimations()
+            button.removeFromSuperview()
+        }
+        markerButtons = []
+        dimmingView.isHidden = true
+    }
+
+    private func positionMarkerButtons() {
+        guard let image = imageView.image else { return }
+        let imageRect = ScreenshotPreviewGeometry.aspectFitRect(
+            contentSize: image.size,
+            in: bounds
+        )
+        let buttonSize: CGFloat = 40
+        let inset = buttonSize / 2
+
+        for button in markerButtons {
+            let center = button.result.map {
+                ScreenshotPreviewGeometry.center(
+                    of: $0.boundingBox,
+                    in: imageRect
+                )
+            } ?? CGPoint(x: imageRect.midX, y: imageRect.midY)
+            let clampedCenter = CGPoint(
+                x: min(max(center.x, imageRect.minX + inset), imageRect.maxX - inset),
+                y: min(max(center.y, imageRect.minY + inset), imageRect.maxY - inset)
+            )
+            button.frame = CGRect(
+                x: clampedCenter.x - inset,
+                y: clampedCenter.y - inset,
+                width: buttonSize,
+                height: buttonSize
+            )
+        }
+    }
+
+    @objc private func openLink(_ sender: BarcodeMarkerButton) {
+        guard let result = sender.result else { return }
+        onOpen?(result)
+    }
+}
+
 @MainActor
 final class ScreenshotBarcodePanelView: NSVisualEffectView {
     var onRetry: (() -> Void)?
-    var onCopy: ((BarcodeResult) -> Void)?
     var onOpen: ((BarcodeResult) -> Void)?
     var onClose: (() -> Void)?
 
     private let progressIndicator = NSProgressIndicator()
     private let statusLabel = NSTextField(labelWithString: "")
-    private let resultsStack = NSStackView()
+    private let previewView = BarcodePreviewView()
     private let retryButton = NSButton()
+
+    var isPreviewDimmed: Bool {
+        previewView.isDimmed
+    }
+
+    var animatedLinkButtonCount: Int {
+        previewView.animatedLinkButtonCount
+    }
+
+    var unsupportedMarkerCount: Int {
+        previewView.unsupportedMarkerCount
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -22,8 +292,12 @@ final class ScreenshotBarcodePanelView: NSVisualEffectView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    func showPreview(_ image: CGImage) {
+        previewView.showImage(image)
+    }
+
     func showLoading() {
-        clearResults()
+        previewView.clearResults()
         progressIndicator.isHidden = false
         progressIndicator.startAnimation(nil)
         statusLabel.stringValue = String(localized: "screenshot.scan.processing")
@@ -32,25 +306,38 @@ final class ScreenshotBarcodePanelView: NSVisualEffectView {
     }
 
     func showResults(_ results: [BarcodeResult]) {
-        clearResults()
         progressIndicator.stopAnimation(nil)
         progressIndicator.isHidden = true
-        statusLabel.stringValue = String(
-            format: String(localized: "screenshot.scan.count"),
-            results.count
-        )
-        statusLabel.isHidden = false
         retryButton.isEnabled = true
+        previewView.showResults(results)
 
-        for result in results {
-            let row = resultRow(for: result)
-            resultsStack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: resultsStack.widthAnchor).isActive = true
+        let linkCount = results.filter { $0.webURL != nil }.count
+        if linkCount == 0 {
+            statusLabel.stringValue = String(
+                format: String(localized: "screenshot.scan.noLinks"),
+                results.count
+            )
+        } else {
+            statusLabel.stringValue = String(
+                format: String(localized: "screenshot.scan.summary"),
+                results.count,
+                linkCount
+            )
         }
+        statusLabel.isHidden = false
     }
 
     func showMessage(_ message: String) {
-        clearResults()
+        previewView.clearResults()
+        progressIndicator.stopAnimation(nil)
+        progressIndicator.isHidden = true
+        statusLabel.stringValue = message
+        statusLabel.isHidden = false
+        retryButton.isEnabled = true
+    }
+
+    func showUnsupportedResult(_ message: String) {
+        previewView.showUnsupportedMarker()
         progressIndicator.stopAnimation(nil)
         progressIndicator.isHidden = true
         statusLabel.stringValue = message
@@ -120,21 +407,9 @@ final class ScreenshotBarcodePanelView: NSVisualEffectView {
         statusRow.alignment = .centerY
         statusRow.spacing = 7
 
-        resultsStack.orientation = .vertical
-        resultsStack.alignment = .leading
-        resultsStack.spacing = 8
-        resultsStack.translatesAutoresizingMaskIntoConstraints = false
-
-        let documentView = NSView()
-        documentView.translatesAutoresizingMaskIntoConstraints = false
-        documentView.addSubview(resultsStack)
-
-        let scrollView = NSScrollView()
-        scrollView.documentView = documentView
-        scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
+        previewView.onOpen = { [weak self] result in
+            self?.onOpen?(result)
+        }
 
         retryButton.title = String(localized: "screenshot.scan.retry")
         retryButton.bezelStyle = .rounded
@@ -148,7 +423,7 @@ final class ScreenshotBarcodePanelView: NSVisualEffectView {
         let content = NSStackView(views: [
             header,
             statusRow,
-            scrollView,
+            previewView,
             footer
         ])
         content.orientation = .vertical
@@ -165,17 +440,12 @@ final class ScreenshotBarcodePanelView: NSVisualEffectView {
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
             header.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
             statusRow.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
-            scrollView.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
-            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 220),
-            footer.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
-            documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
-            documentView.heightAnchor.constraint(
-                greaterThanOrEqualTo: scrollView.contentView.heightAnchor
+            previewView.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
+            previewView.heightAnchor.constraint(
+                equalTo: content.heightAnchor,
+                constant: -108
             ),
-            resultsStack.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
-            resultsStack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
-            resultsStack.topAnchor.constraint(equalTo: documentView.topAnchor),
-            resultsStack.bottomAnchor.constraint(equalTo: documentView.bottomAnchor),
+            footer.widthAnchor.constraint(equalTo: content.widthAnchor, constant: -28),
             iconView.widthAnchor.constraint(equalToConstant: 18),
             iconView.heightAnchor.constraint(equalToConstant: 18),
             progressIndicator.widthAnchor.constraint(equalToConstant: 14),
@@ -185,101 +455,11 @@ final class ScreenshotBarcodePanelView: NSVisualEffectView {
         showLoading()
     }
 
-    private func resultRow(for result: BarcodeResult) -> NSView {
-        let typeLabel = NSTextField(labelWithString: result.symbology)
-        typeLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        typeLabel.textColor = .secondaryLabelColor
-
-        let payloadLabel = NSTextField(wrappingLabelWithString: result.payload)
-        payloadLabel.font = .systemFont(ofSize: 13)
-        payloadLabel.isSelectable = true
-        payloadLabel.maximumNumberOfLines = 4
-        payloadLabel.lineBreakMode = .byTruncatingTail
-
-        let copyButton = BarcodeResultButton(
-            title: String(localized: "screenshot.scan.copy"),
-            result: result,
-            target: self,
-            action: #selector(copyResult(_:))
-        )
-        copyButton.bezelStyle = .rounded
-
-        var buttons = [copyButton as NSView]
-        if result.webURL != nil {
-            let openButton = BarcodeResultButton(
-                title: String(localized: "screenshot.scan.open"),
-                result: result,
-                target: self,
-                action: #selector(openResult(_:))
-            )
-            openButton.bezelStyle = .rounded
-            buttons.append(openButton)
-        }
-        buttons.append(NSView())
-
-        let buttonRow = NSStackView(views: buttons)
-        buttonRow.orientation = .horizontal
-        buttonRow.alignment = .centerY
-        buttonRow.spacing = 8
-
-        let stack = NSStackView(views: [typeLabel, payloadLabel, buttonRow])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        stack.edgeInsets = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        stack.wantsLayer = true
-        stack.layer?.cornerRadius = 9
-        stack.layer?.backgroundColor = NSColor.controlBackgroundColor
-            .withAlphaComponent(0.74).cgColor
-        stack.layer?.borderWidth = 1
-        stack.layer?.borderColor = NSColor.separatorColor.cgColor
-        payloadLabel.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20).isActive = true
-        buttonRow.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -20).isActive = true
-        return stack
-    }
-
-    private func clearResults() {
-        for view in resultsStack.arrangedSubviews {
-            resultsStack.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-    }
-
     @objc private func retryScan() {
         onRetry?()
     }
 
-    @objc private func copyResult(_ sender: BarcodeResultButton) {
-        onCopy?(sender.result)
-    }
-
-    @objc private func openResult(_ sender: BarcodeResultButton) {
-        onOpen?(sender.result)
-    }
-
     @objc private func closePanel() {
         onClose?()
-    }
-}
-
-private final class BarcodeResultButton: NSButton {
-    let result: BarcodeResult
-
-    init(
-        title: String,
-        result: BarcodeResult,
-        target: AnyObject?,
-        action: Selector?
-    ) {
-        self.result = result
-        super.init(frame: .zero)
-        self.title = title
-        self.target = target
-        self.action = action
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 }

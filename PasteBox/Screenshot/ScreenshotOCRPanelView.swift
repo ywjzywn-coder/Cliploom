@@ -1,11 +1,99 @@
 import AppKit
+import VisionKit
 
-private final class ScaledPreviewImageView: NSImageView {
+@MainActor
+private final class LiveTextPreviewView:
+    NSView,
+    ImageAnalysisOverlayViewDelegate
+{
+    private let imageView = NSImageView()
+    private lazy var analysisOverlay = ImageAnalysisOverlayView(self)
+
     override var intrinsicContentSize: NSSize {
         NSSize(
             width: NSView.noIntrinsicMetric,
             height: NSView.noIntrinsicMetric
         )
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        layer?.cornerRadius = 8
+        layer?.borderWidth = 1
+        layer?.borderColor = NSColor.separatorColor.cgColor
+        layer?.masksToBounds = true
+
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        imageView.imageAlignment = .alignCenter
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+
+        analysisOverlay.preferredInteractionTypes = [.textSelection]
+        analysisOverlay.trackingImageView = imageView
+        analysisOverlay.isSupplementaryInterfaceHidden = false
+        analysisOverlay.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(analysisOverlay)
+
+        NSLayoutConstraint.activate([
+            imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            imageView.topAnchor.constraint(equalTo: topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            analysisOverlay.leadingAnchor.constraint(equalTo: leadingAnchor),
+            analysisOverlay.trailingAnchor.constraint(equalTo: trailingAnchor),
+            analysisOverlay.topAnchor.constraint(equalTo: topAnchor),
+            analysisOverlay.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        analysisOverlay.setContentsRectNeedsUpdate()
+    }
+
+    func showImage(_ image: CGImage) {
+        imageView.image = NSImage(
+            cgImage: image,
+            size: NSSize(width: image.width, height: image.height)
+        )
+        analysisOverlay.analysis = nil
+        analysisOverlay.resetSelection()
+        analysisOverlay.setContentsRectNeedsUpdate()
+    }
+
+    func showAnalysis(_ analysis: ImageAnalysis?) {
+        analysisOverlay.resetSelection()
+        analysisOverlay.analysis = analysis
+        analysisOverlay.selectableItemsHighlighted = analysis != nil
+        analysisOverlay.setContentsRectNeedsUpdate()
+    }
+
+    func contentsRect(for overlayView: ImageAnalysisOverlayView) -> CGRect {
+        guard let image = imageView.image else { return .zero }
+        return ScreenshotPreviewGeometry.aspectFitUnitRect(
+            contentSize: image.size,
+            in: imageView.bounds
+        )
+    }
+
+    func contentView(for overlayView: ImageAnalysisOverlayView) -> NSView? {
+        imageView
+    }
+
+    func overlayView(
+        _ overlayView: ImageAnalysisOverlayView,
+        shouldBeginAt point: CGPoint,
+        forAnalysisType analysisType: ImageAnalysisOverlayView.InteractionTypes
+    ) -> Bool {
+        analysisType.contains(.textSelection)
     }
 }
 
@@ -97,7 +185,7 @@ final class ScreenshotOCRPanelView: NSVisualEffectView, NSTextViewDelegate {
 
     private let progressIndicator = NSProgressIndicator()
     private let statusLabel = NSTextField(labelWithString: "")
-    private let previewImageView = ScaledPreviewImageView()
+    private let previewImageView = LiveTextPreviewView()
     private let textView = NSTextView()
     private let scrollView = NSScrollView()
     private let countLabel = NSTextField(labelWithString: "")
@@ -122,25 +210,23 @@ final class ScreenshotOCRPanelView: NSVisualEffectView, NSTextViewDelegate {
         textView.isEditable = false
         retryButton.isEnabled = false
         copyButton.isEnabled = false
+        previewImageView.showAnalysis(nil)
     }
 
     func showPreview(_ image: CGImage) {
-        previewImageView.image = NSImage(
-            cgImage: image,
-            size: NSSize(width: image.width, height: image.height)
-        )
+        previewImageView.showImage(image)
     }
 
-    func showResult(_ text: String) {
+    func showResult(_ result: TextRecognitionResult) {
         progressIndicator.stopAnimation(nil)
         progressIndicator.isHidden = true
         statusLabel.isHidden = true
-        textView.string = text
+        textView.string = result.text
         textView.isEditable = true
         retryButton.isEnabled = true
         copyButton.isEnabled = !trimmedText.isEmpty
+        previewImageView.showAnalysis(result.imageAnalysis)
         updateCount()
-        window?.makeFirstResponder(textView)
     }
 
     func showMessage(_ message: String) {
@@ -151,6 +237,7 @@ final class ScreenshotOCRPanelView: NSVisualEffectView, NSTextViewDelegate {
         textView.isEditable = true
         retryButton.isEnabled = true
         copyButton.isEnabled = !trimmedText.isEmpty
+        previewImageView.showAnalysis(nil)
         updateCount()
     }
 
@@ -251,14 +338,6 @@ final class ScreenshotOCRPanelView: NSVisualEffectView, NSTextViewDelegate {
         )
         previewTitle.font = .systemFont(ofSize: 12, weight: .medium)
         previewTitle.textColor = .secondaryLabelColor
-
-        previewImageView.imageScaling = .scaleProportionallyUpOrDown
-        previewImageView.imageAlignment = .alignCenter
-        previewImageView.wantsLayer = true
-        previewImageView.layer?.backgroundColor = NSColor.black.cgColor
-        previewImageView.layer?.cornerRadius = 8
-        previewImageView.layer?.borderWidth = 1
-        previewImageView.layer?.borderColor = NSColor.separatorColor.cgColor
 
         let previewColumn = NSStackView(views: [previewTitle, previewImageView])
         previewColumn.orientation = .vertical

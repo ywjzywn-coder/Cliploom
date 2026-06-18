@@ -1,6 +1,7 @@
 import AppKit
 import Carbon
 import CoreImage
+import VisionKit
 import XCTest
 @testable import PasteBox
 
@@ -70,6 +71,134 @@ final class ScreenshotCaptureGeometryTests: XCTestCase {
         )
 
         XCTAssertEqual(size, CGSize(width: 2560, height: 1440))
+    }
+}
+
+final class ScreenshotTranslationDirectionTests: XCTestCase {
+    func testSimplifiedChineseDefaultsToEnglish() {
+        XCTAssertEqual(
+            ScreenshotTranslationDirection.targetIdentifier(
+                for: "你好，世界",
+                dominantLanguage: .simplifiedChinese
+            ),
+            "en"
+        )
+    }
+
+    func testTraditionalChineseDefaultsToEnglish() {
+        XCTAssertEqual(
+            ScreenshotTranslationDirection.targetIdentifier(
+                for: "你好，世界",
+                dominantLanguage: .traditionalChinese
+            ),
+            "en"
+        )
+    }
+
+    func testOtherLanguagesDefaultToSimplifiedChinese() {
+        XCTAssertEqual(
+            ScreenshotTranslationDirection.targetIdentifier(
+                for: "Hello world",
+                dominantLanguage: .english
+            ),
+            "zh-Hans"
+        )
+    }
+}
+
+@MainActor
+final class ScreenshotTranslationPanelTests: XCTestCase {
+    func testRepeatedTranslationsRefreshOrReplaceTheConfiguration() throws {
+        let model = ScreenshotTranslationModel()
+
+        model.translate("Hello")
+        let firstConfiguration = try XCTUnwrap(model.configuration)
+
+        model.translate("Goodbye")
+        let refreshedConfiguration = try XCTUnwrap(model.configuration)
+        XCTAssertNotEqual(firstConfiguration, refreshedConfiguration)
+        XCTAssertEqual(model.sourceText, "Goodbye")
+
+        model.translate("你好")
+        let switchedConfiguration = try XCTUnwrap(model.configuration)
+        XCTAssertNotEqual(refreshedConfiguration, switchedConfiguration)
+        XCTAssertEqual(model.sourceText, "你好")
+    }
+
+    func testTranslationPanelCanPrepareRepeatedRequests() throws {
+        let bitmap = try XCTUnwrap(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: 320,
+                pixelsHigh: 180,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+        let image = try XCTUnwrap(bitmap.cgImage)
+        let panelView = ScreenshotTranslationPanelView(
+            frame: CGRect(x: 0, y: 0, width: 960, height: 640)
+        )
+
+        panelView.showPreview(image)
+        panelView.showRecognizing()
+        panelView.showMessage("暂时无法识别")
+        panelView.showPreview(image)
+
+        XCTAssertEqual(panelView.frame.size, NSSize(width: 960, height: 640))
+    }
+}
+
+@MainActor
+final class ScreenshotOCRPanelTests: XCTestCase {
+    func testPanelAcceptsFallbackRecognitionResult() throws {
+        let bitmap = try XCTUnwrap(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: 320,
+                pixelsHigh: 180,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+        let image = try XCTUnwrap(bitmap.cgImage)
+        let panel = ScreenshotOCRPanelView(
+            frame: CGRect(x: 0, y: 0, width: 960, height: 640)
+        )
+
+        panel.showPreview(image)
+        panel.showLoading()
+        panel.showResult(
+            TextRecognitionResult(
+                text: "Cliploom OCR",
+                imageAnalysis: nil
+            )
+        )
+        panel.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(allText(in: panel).contains("Cliploom OCR"))
+    }
+
+    private func allText(in view: NSView) -> [String] {
+        let text: [String]
+        if let textView = view as? NSTextView {
+            text = [textView.string]
+        } else if let textField = view as? NSTextField {
+            text = [textField.stringValue]
+        } else {
+            text = []
+        }
+        return text + view.subviews.flatMap(allText)
     }
 }
 
@@ -197,6 +326,29 @@ final class ScreenshotToolbarGeometryTests: XCTestCase {
 
 @MainActor
 final class ScreenshotOverlayInputTests: XCTestCase {
+    @MainActor
+    func testSystemPanelSuspensionHidesAndRestoresOverlay() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let controller = ScreenshotOverlayController(
+            session: ScreenshotSession(
+                image: try makeSolidImage(color: .systemBlue),
+                screen: screen,
+                windows: []
+            )
+        )
+
+        controller.show()
+        XCTAssertTrue(controller.window?.isVisible ?? false)
+
+        controller.suspendForSystemPanel()
+        XCTAssertFalse(controller.window?.isVisible ?? true)
+
+        controller.restoreAfterSystemPanel()
+        XCTAssertTrue(controller.window?.isVisible ?? false)
+
+        controller.close()
+    }
+
     func testScreenshotPanelCanReceiveKeyboardFocus() {
         let panel = ScreenshotPanel(
             contentRect: CGRect(x: 0, y: 0, width: 800, height: 600),
@@ -308,6 +460,45 @@ final class ScreenshotOverlayInputTests: XCTestCase {
         XCTAssertEqual(copiedValue, "#00FF00")
     }
 
+    func testColorInspectorStaysHiddenAfterMouseSelectionUntilPointerMoves() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let session = ScreenshotSession(
+            image: try makeSolidImage(color: .systemBlue),
+            screen: screen,
+            windows: []
+        )
+        let view = ScreenshotOverlayView(
+            frame: CGRect(origin: .zero, size: screen.frame.size)
+        )
+        view.session = session
+
+        view.mouseMoved(with: try mouseEvent(type: .mouseMoved))
+        XCTAssertFalse(view.isColorInspectorSuppressed)
+
+        view.mouseDown(with: try mouseEvent(type: .leftMouseDown))
+        view.mouseUp(with: try mouseEvent(type: .leftMouseUp))
+        XCTAssertTrue(view.isColorInspectorSuppressed)
+
+        view.mouseMoved(with: try mouseEvent(type: .mouseMoved))
+        XCTAssertFalse(view.isColorInspectorSuppressed)
+    }
+
+    private func mouseEvent(type: NSEvent.EventType) throws -> NSEvent {
+        try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: type,
+                location: CGPoint(x: 120, y: 120),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 0
+            )
+        )
+    }
+
     private func makeSolidImage(color: NSColor) throws -> CGImage {
         let context = try XCTUnwrap(
             CGContext(
@@ -353,6 +544,72 @@ final class OCRPanelGeometryTests: XCTestCase {
         )
 
         XCTAssertEqual(size, CGSize(width: 1200, height: 720))
+    }
+}
+
+final class ScreenshotPreviewGeometryTests: XCTestCase {
+    func testAspectFitRectCentersWideImageVertically() {
+        let rect = ScreenshotPreviewGeometry.aspectFitRect(
+            contentSize: CGSize(width: 1600, height: 900),
+            in: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+
+        XCTAssertEqual(rect, CGRect(x: 0, y: 75, width: 800, height: 450))
+    }
+
+    func testAspectFitRectCentersTallImageHorizontally() {
+        let rect = ScreenshotPreviewGeometry.aspectFitRect(
+            contentSize: CGSize(width: 900, height: 1600),
+            in: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+
+        XCTAssertEqual(rect, CGRect(x: 231.25, y: 0, width: 337.5, height: 600))
+    }
+
+    func testNormalizedBarcodeCenterUsesVisionBottomLeftCoordinates() {
+        let center = ScreenshotPreviewGeometry.center(
+            of: CGRect(x: 0.2, y: 0.6, width: 0.2, height: 0.2),
+            in: CGRect(x: 100, y: 50, width: 500, height: 300)
+        )
+
+        XCTAssertEqual(center.x, 250, accuracy: 0.001)
+        XCTAssertEqual(center.y, 260, accuracy: 0.001)
+    }
+
+    func testAspectFitUnitRectUsesVisionKitUnitCoordinates() {
+        let rect = ScreenshotPreviewGeometry.aspectFitUnitRect(
+            contentSize: CGSize(width: 1600, height: 900),
+            in: CGRect(x: 20, y: 40, width: 800, height: 800)
+        )
+
+        XCTAssertEqual(rect.minX, 0, accuracy: 0.001)
+        XCTAssertEqual(rect.minY, 0.21875, accuracy: 0.001)
+        XCTAssertEqual(rect.width, 1, accuracy: 0.001)
+        XCTAssertEqual(rect.height, 0.5625, accuracy: 0.001)
+    }
+}
+
+final class BarcodePanelGeometryTests: XCTestCase {
+    func testWideSelectionProducesWidePreviewWindow() {
+        let size = BarcodePanelGeometry.preferredSize(
+            imageSize: CGSize(width: 1600, height: 900),
+            selectionSize: CGSize(width: 700, height: 394),
+            maximum: CGSize(width: 1400, height: 800)
+        )
+
+        XCTAssertEqual(size.width, 728)
+        XCTAssertEqual(size.height, 501.75)
+    }
+
+    func testTallImageNeverExceedsVisibleScreen() {
+        let size = BarcodePanelGeometry.preferredSize(
+            imageSize: CGSize(width: 900, height: 2400),
+            selectionSize: CGSize(width: 220, height: 700),
+            maximum: CGSize(width: 1100, height: 720)
+        )
+
+        XCTAssertEqual(size.width, 420)
+        XCTAssertEqual(size.height, 720)
     }
 }
 
@@ -419,13 +676,115 @@ final class BarcodeScannerTests: XCTestCase {
             "example.com"
         )
     }
+
+    func testDeduplicationKeepsSameLinkAtDifferentPositions() {
+        let first = BarcodeResult(
+            symbology: "QR",
+            payload: "https://example.com",
+            boundingBox: CGRect(x: 0.1, y: 0.1, width: 0.2, height: 0.2)
+        )
+        let nearDuplicate = BarcodeResult(
+            symbology: "QR",
+            payload: "https://example.com",
+            boundingBox: CGRect(x: 0.102, y: 0.099, width: 0.2, height: 0.2)
+        )
+        let secondPosition = BarcodeResult(
+            symbology: "QR",
+            payload: "https://example.com",
+            boundingBox: CGRect(x: 0.65, y: 0.6, width: 0.2, height: 0.2)
+        )
+
+        let results = BarcodeScanner.deduplicated([
+            first,
+            nearDuplicate,
+            secondPosition
+        ])
+
+        XCTAssertEqual(results.count, 2)
+        XCTAssertTrue(results.contains { $0.boundingBox == first.boundingBox })
+        XCTAssertTrue(results.contains { $0.boundingBox == secondPosition.boundingBox })
+    }
+
+    func testScannerRecognizesMultipleQRCodesInOneImage() async throws {
+        let canvasSize = CGSize(width: 1000, height: 700)
+        let placements: [(String, CGRect)] = [
+            ("https://example.com/one", CGRect(x: 40, y: 390, width: 240, height: 240)),
+            ("https://example.com/two", CGRect(x: 380, y: 380, width: 180, height: 180)),
+            ("https://example.com/three", CGRect(x: 690, y: 360, width: 260, height: 260)),
+            ("plain text payload", CGRect(x: 330, y: 40, width: 220, height: 220))
+        ]
+        let image = try makeQRCodeCanvas(
+            size: canvasSize,
+            placements: placements
+        )
+
+        let results = try await BarcodeScanner.scan(cgImage: image)
+
+        XCTAssertEqual(results.count, placements.count)
+        for (payload, _) in placements {
+            XCTAssertTrue(
+                results.contains { $0.payload == payload },
+                "Missing barcode payload: \(payload)"
+            )
+        }
+    }
+
+    func testUnsafeAndNonWebPayloadsDoNotProduceLinks() {
+        XCTAssertNil(
+            BarcodeResult(
+                symbology: "QR",
+                payload: "javascript:alert(1)",
+                boundingBox: .zero
+            ).webURL
+        )
+        XCTAssertNil(
+            BarcodeResult(
+                symbology: "QR",
+                payload: "plain text",
+                boundingBox: .zero
+            ).webURL
+        )
+    }
+
+    private func makeQRCodeCanvas(
+        size: CGSize,
+        placements: [(String, CGRect)]
+    ) throws -> CGImage {
+        let context = try XCTUnwrap(
+            CGContext(
+                data: nil,
+                width: Int(size.width),
+                height: Int(size.height),
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        )
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(CGRect(origin: .zero, size: size))
+
+        let ciContext = CIContext()
+        for (payload, rect) in placements {
+            let filter = try XCTUnwrap(CIFilter(name: "CIQRCodeGenerator"))
+            filter.setValue(Data(payload.utf8), forKey: "inputMessage")
+            filter.setValue("H", forKey: "inputCorrectionLevel")
+            let output = try XCTUnwrap(filter.outputImage)
+            let qrImage = try XCTUnwrap(
+                ciContext.createCGImage(output, from: output.extent)
+            )
+            context.interpolationQuality = .none
+            context.draw(qrImage, in: rect)
+        }
+        return try XCTUnwrap(context.makeImage())
+    }
 }
 
 @MainActor
 final class BarcodePanelTests: XCTestCase {
-    func testPanelCanDisplayResultsRepeatedly() {
+    func testPanelReplacesOldLinkButtonsAndHidesNonLinks() throws {
         let panel = ScreenshotBarcodePanelView(
-            frame: CGRect(x: 0, y: 0, width: 400, height: 500)
+            frame: CGRect(x: 0, y: 0, width: 720, height: 500)
         )
         let window = NSWindow(
             contentRect: panel.frame,
@@ -434,6 +793,7 @@ final class BarcodePanelTests: XCTestCase {
             defer: false
         )
         window.contentView = panel
+        panel.showPreview(try makeSolidImage(width: 640, height: 360))
 
         let first = BarcodeResult(
             symbology: "QR",
@@ -445,20 +805,140 @@ final class BarcodePanelTests: XCTestCase {
             payload: "https://example.com/second",
             boundingBox: CGRect(x: 0.2, y: 0.2, width: 0.4, height: 0.4)
         )
+        let nonLink = BarcodeResult(
+            symbology: "QR",
+            payload: "plain text",
+            boundingBox: CGRect(x: 0.6, y: 0.6, width: 0.2, height: 0.2)
+        )
 
-        panel.showResults([first])
+        panel.showResults([first, nonLink])
         panel.layoutSubtreeIfNeeded()
+        XCTAssertEqual(linkButtons(in: panel).count, 1)
+        XCTAssertEqual(unsupportedButtons(in: panel).count, 1)
+        XCTAssertEqual(panel.unsupportedMarkerCount, 1)
+        XCTAssertEqual(
+            unsupportedButtons(in: panel).first?.toolTip,
+            String(localized: "screenshot.scan.unsupported")
+        )
+        XCTAssertTrue(panel.isPreviewDimmed)
+        if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            XCTAssertEqual(panel.animatedLinkButtonCount, 1)
+        }
+
         panel.showLoading()
+        XCTAssertFalse(panel.isPreviewDimmed)
         panel.showResults([second])
         panel.layoutSubtreeIfNeeded()
 
-        XCTAssertTrue(allText(in: panel).contains(second.payload))
-        XCTAssertFalse(allText(in: panel).contains(first.payload))
+        let buttons = linkButtons(in: panel)
+        XCTAssertEqual(buttons.count, 1)
+        XCTAssertEqual(buttons.first?.toolTip, "example.com")
+        XCTAssertEqual(panel.unsupportedMarkerCount, 0)
     }
 
-    private func allText(in view: NSView) -> [String] {
-        let ownText = (view as? NSTextField).map { [$0.stringValue] } ?? []
-        return ownText + view.subviews.flatMap(allText)
+    func testEmptyScanShowsCenteredUnsupportedMarker() throws {
+        let panel = ScreenshotBarcodePanelView(
+            frame: CGRect(x: 0, y: 0, width: 720, height: 500)
+        )
+        panel.showPreview(try makeSolidImage(width: 640, height: 360))
+        panel.showUnsupportedResult(
+            String(localized: "screenshot.scan.empty")
+        )
+        panel.layoutSubtreeIfNeeded()
+
+        XCTAssertTrue(panel.isPreviewDimmed)
+        XCTAssertEqual(panel.unsupportedMarkerCount, 1)
+        XCTAssertEqual(unsupportedButtons(in: panel).count, 1)
+    }
+
+    func testClickingLinkButtonReturnsTheMatchingResult() throws {
+        let panel = ScreenshotBarcodePanelView(
+            frame: CGRect(x: 0, y: 0, width: 720, height: 500)
+        )
+        let result = BarcodeResult(
+            symbology: "QR",
+            payload: "https://example.com/open",
+            boundingBox: CGRect(x: 0.3, y: 0.3, width: 0.3, height: 0.3)
+        )
+        var openedResult: BarcodeResult?
+        panel.onOpen = { openedResult = $0 }
+
+        panel.showPreview(try makeSolidImage(width: 640, height: 360))
+        panel.showResults([result])
+        panel.layoutSubtreeIfNeeded()
+        try XCTUnwrap(linkButtons(in: panel).first).performClick(nil)
+
+        XCTAssertEqual(openedResult?.payload, result.payload)
+    }
+
+    func testPanelShowsEveryMarkerInMultiCodeResult() throws {
+        let panel = ScreenshotBarcodePanelView(
+            frame: CGRect(x: 0, y: 0, width: 900, height: 620)
+        )
+        panel.showPreview(try makeSolidImage(width: 1000, height: 700))
+        panel.showResults([
+            BarcodeResult(
+                symbology: "QR",
+                payload: "https://example.com/one",
+                boundingBox: CGRect(x: 0.04, y: 0.56, width: 0.24, height: 0.34)
+            ),
+            BarcodeResult(
+                symbology: "QR",
+                payload: "https://example.com/two",
+                boundingBox: CGRect(x: 0.38, y: 0.54, width: 0.18, height: 0.26)
+            ),
+            BarcodeResult(
+                symbology: "QR",
+                payload: "https://example.com/three",
+                boundingBox: CGRect(x: 0.69, y: 0.51, width: 0.26, height: 0.37)
+            ),
+            BarcodeResult(
+                symbology: "QR",
+                payload: "plain text",
+                boundingBox: CGRect(x: 0.33, y: 0.06, width: 0.22, height: 0.31)
+            )
+        ])
+        panel.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(linkButtons(in: panel).count, 3)
+        XCTAssertEqual(unsupportedButtons(in: panel).count, 1)
+    }
+
+    private func linkButtons(in view: NSView) -> [NSButton] {
+        markerButtons(in: view, identifier: "barcode.link")
+    }
+
+    private func unsupportedButtons(in view: NSView) -> [NSButton] {
+        markerButtons(in: view, identifier: "barcode.unsupported")
+    }
+
+    private func markerButtons(
+        in view: NSView,
+        identifier: String
+    ) -> [NSButton] {
+        let ownButton = (view as? NSButton).flatMap {
+            $0.identifier?.rawValue == identifier ? $0 : nil
+        }.map { [$0] } ?? []
+        return ownButton + view.subviews.flatMap {
+            markerButtons(in: $0, identifier: identifier)
+        }
+    }
+
+    private func makeSolidImage(width: Int, height: Int) throws -> CGImage {
+        let context = try XCTUnwrap(
+            CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        )
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return try XCTUnwrap(context.makeImage())
     }
 }
 
@@ -485,10 +965,43 @@ final class TextRecognizerTests: XCTestCase {
             )
         )
 
-        let text = try await TextRecognizer.recognize(cgImage: cgImage)
+        let result = try await TextRecognizer.recognize(cgImage: cgImage)
 
-        XCTAssertTrue(text.localizedCaseInsensitiveContains("Cliploom"))
-        XCTAssertTrue(text.contains("2026"))
+        XCTAssertTrue(result.text.localizedCaseInsensitiveContains("Cliploom"))
+        XCTAssertTrue(result.text.contains("2026"))
+        if ImageAnalyzer.isSupported {
+            XCTAssertNotNil(result.imageAnalysis)
+        }
+    }
+
+    func testRecognizerFallsBackToVisionWithoutLiveTextAnalysis() async throws {
+        let image = NSImage(size: NSSize(width: 640, height: 180))
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSRect(origin: .zero, size: image.size).fill()
+        "Fallback OCR".draw(
+            at: NSPoint(x: 30, y: 55),
+            withAttributes: [
+                .font: NSFont.systemFont(ofSize: 48, weight: .semibold),
+                .foregroundColor: NSColor.black
+            ]
+        )
+        image.unlockFocus()
+        let cgImage = try XCTUnwrap(
+            image.cgImage(
+                forProposedRect: nil,
+                context: nil,
+                hints: nil
+            )
+        )
+
+        let result = try await TextRecognizer.recognize(
+            cgImage: cgImage,
+            includeLiveTextAnalysis: false
+        )
+
+        XCTAssertTrue(result.text.localizedCaseInsensitiveContains("Fallback"))
+        XCTAssertNil(result.imageAnalysis)
     }
 }
 

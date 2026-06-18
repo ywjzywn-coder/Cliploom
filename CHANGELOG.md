@@ -2,6 +2,46 @@
 
 All notable changes to Cliploom are documented here.
 
+## Unreleased
+
+### Added
+
+- Screenshot selections can now be translated after local OCR using Apple's
+  system Translation framework. Chinese text defaults to English, while other
+  detected languages default to Simplified Chinese.
+- OCR image previews now use macOS Live Text so recognized text can be selected,
+  right-clicked, and copied directly from the screenshot.
+- Barcode and QR results now appear as link buttons centered on each detected
+  code in the image preview.
+
+### Changed
+
+- The minimum supported system is now macOS 15 so translation can remain inside
+  Apple's native framework without third-party translation services.
+
+### Fixed
+
+- Live Text now receives the image's normalized unit rectangle, fixing OCR
+  selection hit testing in letterboxed previews.
+- QR link previews now dim the captured image and use larger animated link
+  arrows so detected actions are immediately visible.
+- Detected non-web codes now show a prohibited marker with an explanatory
+  tooltip; scans with no supported result show the same marker at preview
+  center.
+- Dense multi-code screenshots now receive a second overlapping tiled scan with
+  adaptive local enlargement, then merge results back into original-image
+  coordinates without duplicate markers.
+- The screenshot color inspector now disappears as soon as selection begins and
+  stays hidden after mouse release until the pointer moves again.
+- Repeated local translations now refresh the active Apple translation session
+  reliably instead of invalidating a newly created configuration.
+- Repeated barcode scans now replace stale link markers while preserving
+  identical links detected at different image positions.
+- Screenshot Save now hides the full-screen capture overlay before showing the
+  macOS save panel, preventing the app from appearing frozen.
+- Screenshot warmup no longer keeps a resident ScreenCaptureKit stream running
+  in the background, reducing long-session CPU, GPU, and memory pressure.
+
 ## [1.0.0] - 2026-06-14
 
 ### Fixed

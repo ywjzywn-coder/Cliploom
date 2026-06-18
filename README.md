@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?logo=apple">
+  <img alt="macOS 15+" src="https://img.shields.io/badge/macOS-15%2B-111111?logo=apple">
   <img alt="Universal" src="https://img.shields.io/badge/Mac-Apple%20Silicon%20%2B%20Intel-0A84FF">
   <img alt="Local Only" src="https://img.shields.io/badge/Data-Local%20Only-34C759">
   <img alt="Windows Planned" src="https://img.shields.io/badge/Windows-Port%20Ready-0078D4?logo=windows">
@@ -35,7 +35,7 @@ Windows 版本可依据同一套产品行为继续开发。
 
 ### 系统要求
 
-- macOS 14 或更高版本
+- macOS 15 或更高版本
 - 支持 Apple Silicon 与 Intel Mac
 
 ### 第 1 步：下载安装包
