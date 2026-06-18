@@ -2,7 +2,8 @@
 
 > **Status:** ready for implementation
 >
-> **Product baseline:** macOS `v0.1.2`
+> **Product baseline:** macOS `v1.1.0` plus the latest `main` clipboard thumbnail
+> clipping fix
 >
 > Recommended target: Windows 11 22H2 or later
 
@@ -38,6 +39,7 @@ Read these macOS files before implementing an equivalent module:
 | Hotkey configuration | `PasteBox/Services/GlobalHotKeyManager.swift` |
 | Direct paste behavior | `PasteBox/Services/PasteCoordinator.swift` |
 | Clipboard panel UX | `PasteBox/UI/ClipboardPanelView.swift` |
+| Clipboard row previews | `PasteBox/UI/ClipboardRowView.swift` |
 | Screenshot lifecycle | `PasteBox/Screenshot/ScreenshotCoordinator.swift` |
 | Selection and annotation behavior | `PasteBox/Screenshot/ScreenshotOverlayController.swift` |
 | Pixel-coordinate conversion | `PasteBox/Screenshot/ScreenshotModels.swift` |
@@ -174,6 +176,11 @@ Each history row:
 
 - Minimum height: 64 DIPs.
 - Preview: 40 x 40 DIPs.
+- Image previews must render inside a fixed square container using aspect-fill
+  clipping. Extreme tall, wide, or tiny images must never stretch the row,
+  overflow into neighboring rows, or distort action buttons.
+- File icons and placeholder icons use the same fixed preview container so every
+  row keeps stable alignment.
 - Primary summary: maximum two lines.
 - Metadata: kind, unavailable state when relevant, and date plus hour only.
 - Favorite action: visible when selected, hovered, focused, or already
@@ -256,16 +263,36 @@ The text pane includes Recognize again, Copy text, and Close actions.
 Recognition runs off the UI thread and exposes progress, cancellation, empty
 result, and retry states without freezing the window.
 
+When the OCR engine returns line or word bounding boxes, the image pane should
+also offer selectable recognized text over the preview. `Ctrl+C` copies only the
+current image-pane text selection, while Copy text in the right pane copies the
+complete editable result. If the first Windows build cannot support image-pane
+selection cleanly, keep the right editable text pane fully functional and track
+image-pane text selection as an explicit follow-up.
+
 ### Barcode Result Window
 
-- Use a compact content-sized result window, clamped to 80% of the monitor work
+- Close or hide the screenshot overlay before presenting results.
+- Use a compact content-sized preview window, clamped to 80% of the monitor work
   area.
-- Display each unique result as a card with symbology, selectable payload,
-  Copy, and conditionally Open link.
-- Only valid `http` and `https` links receive Open link.
-- Empty and failure states remain visible with Retry and Close actions.
+- Show the captured image preview as the primary content. Do not use a side list
+  for routine results.
+- Dim the preview enough that markers stand out, but keep the underlying image
+  readable.
+- For every valid `http` or `https` result, place a high-contrast circular arrow
+  button at the center of that code's detected bounding box. The button should
+  have a subtle pulse or attention animation that respects reduced-motion
+  settings.
+- Clicking a link marker opens the URL with the default browser. Never navigate
+  automatically during recognition.
+- Non-link payloads do not get an open button. If the scanner detects unsupported
+  or non-openable codes, show a circular prohibited marker with a tooltip such as
+  "Not a supported web link".
+- If no supported result is detected, show the same prohibited marker at preview
+  center and keep Retry and Close actions visible.
+- A status row shows total detected codes and openable links.
 - Starting another scan creates fresh view state. Never reuse a stale
-  collection, cancellation token, or result window model.
+  collection, cancellation token, marker layer, or result window model.
 
 ### Settings And Tray
 
@@ -472,6 +499,8 @@ OCR:
 
 - Hide the screenshot overlay before recognition begins.
 - Show the selected image on the left and editable recognized text on the right.
+- Prefer image-pane text selection when OCR bounding boxes are available; the
+  right pane remains the complete editable text source of truth.
 - Size the window from the selected image while keeping it inside the current
   monitor's working area.
 - The center divider is draggable, and its ratio persists across sessions.
@@ -480,10 +509,13 @@ OCR:
 Barcode:
 
 - Hide the screenshot overlay and show a dedicated result window.
-- Display every unique result with symbology and payload.
-- Allow copy for all non-empty payloads.
-- Only offer “Open link” for valid `http` or `https` URLs.
-- Never navigate automatically.
+- Display results as markers over the preview image, not as a side result list.
+- Show one marker for each detected code position. Identical links at different
+  positions still get separate markers; only duplicate results with the same
+  payload and same position should be merged.
+- Only valid `http` or `https` URLs get an open arrow marker.
+- Non-web or unsupported codes get a prohibited marker with a tooltip.
+- Never navigate automatically; only marker clicks open links.
 - Repeated scans in one app session must not crash or reuse stale view state.
 
 Shared lifecycle:
@@ -562,9 +594,12 @@ can install, grant no extra permissions, and finish both primary workflows.
 - Secondary monitors left of and above the primary monitor
 - Notepad, Edge/Chrome, Explorer, Office, and an elevated application
 - Text, HTTP/HTTPS links, Unicode text, images, one file, and multiple files
+- Extremely tall, wide, tiny, and high-DPI images in clipboard history
 - Missing files and paths containing Chinese characters
 - First and repeated OCR scans
 - First and repeated QR/barcode scans
+- Multiple QR/barcode results in one image, repeated links at different
+  positions, edge-positioned codes, and non-web code payloads
 - App restart, Windows restart, hotkey conflict, and monitor disconnection
 
 ## Definition Of Done
@@ -577,6 +612,10 @@ can install, grant no extra permissions, and finish both primary workflows.
 - Starting a new screenshot closes any prior result session.
 - OCR shows selected image and editable text with a remembered divider ratio.
 - Repeated barcode scans display current results and do not crash.
+- Clipboard image thumbnails stay inside their fixed preview square for extreme
+  aspect ratios.
+- QR/barcode results render as preview markers; HTTP/HTTPS markers open links,
+  while unsupported markers explain why they cannot be opened.
 - History, favorites, settings, and panel position survive restart.
 - All user content remains local unless explicitly exported.
 
