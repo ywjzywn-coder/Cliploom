@@ -19,9 +19,11 @@
 </p>
 
 <p align="center">
+  <a href="#当前状态">当前状态</a> ·
   <a href="#快速开始">快速开始</a> ·
   <a href="#核心功能">核心功能</a> ·
   <a href="#截图工作流">截图工作流</a> ·
+  <a href="#本地验证">本地验证</a> ·
   <a href="#权限与隐私">权限与隐私</a> ·
   <a href="#windows-接力开发">Windows 接力开发</a> ·
   <a href="#开发">开发</a>
@@ -38,6 +40,21 @@ Cliploom 是一个常驻菜单栏的小工具，解决两个高频问题：
 
 它不是云剪贴板，也不做账号同步。项目里的“跨设备同步”指的是同步操作习惯：
 当你从 Mac 切到 Windows 时，仍然使用相同的快捷键思路、分类规则、确认/取消逻辑和截图流程。
+
+## 当前状态
+
+Cliploom 的 macOS 版本已经进入功能稳定期。后续默认以修复 Bug、整理文档、
+优化安装体验和 Windows 接力开发说明为主，不再主动扩展大功能。
+
+| 项目 | 状态 |
+| --- | --- |
+| macOS 应用 | 可日常使用，最新源码以 `main` 分支为准 |
+| 最新安装包 | Releases 中的 `v1.1.0` DMG |
+| 本地验证 | 见 [本地测试报告](docs/LOCAL_TEST_REPORT.md) |
+| Windows 版本 | 设计规范已整理，等待 WinUI 3 原生实现 |
+
+> 如果你在 GitHub 上刷新 Releases 页面，只会看到最新安装包版本；
+> 如果你刷新代码首页或 commit 列表，看到的是 `main` 分支最新源码。
 
 ## 快速开始
 
@@ -75,7 +92,7 @@ Cliploom-1.1.0-macOS-universal-unnotarized.dmg
 | 快捷粘贴 | `Option+V` 打开面板，方向键选择，`Enter` 粘贴 |
 | 智能去重 | 相同内容再次复制时置顶，不重复堆积 |
 | 图片缓存 | 图片保存到本机应用支持目录，文件记录只保存路径 |
-| 自动清理 | 未收藏记录最多保留 500 条或 30 天 |
+| 自动清理 | 未收藏记录默认保留 500 条或 30 天，可在设置中自定义 |
 | 菜单栏控制 | 打开面板、截图、暂停记录、清空历史、设置、退出 |
 | 本地优先 | 无云同步、无遥测、无自动上传 |
 
@@ -128,6 +145,34 @@ Cliploom-1.1.0-macOS-universal-unnotarized.dmg
 | 复制取色值 | `Command+C` |
 
 剪贴板和截图快捷键都可以在设置中修改。
+
+## 本地验证
+
+最近一次本地验证时间：2026-06-21。
+
+已验证内容：
+
+- 截图工具栏完成按钮会在命中区域尚未绘制缓存时正确触发。
+- `Option+A` 截图完成后可以复制 PNG 到系统剪贴板。
+- 剪贴板历史保留时长和条数支持设置项，默认仍为 30 天 / 500 条。
+- 本地安装脚本可更新 `/Applications/Cliploom.app` 并重新启动应用。
+- 当前安装应用签名校验通过。
+
+测试命令：
+
+```bash
+xcodebuild \
+  -project PasteBox.xcodeproj \
+  -scheme PasteBox \
+  -destination 'platform=macOS,arch=arm64' \
+  -only-testing:PasteBoxTests \
+  CODE_SIGNING_ALLOWED=NO \
+  test
+```
+
+成功标志：终端显示 `** TEST SUCCEEDED **`。
+
+完整记录见 [docs/LOCAL_TEST_REPORT.md](docs/LOCAL_TEST_REPORT.md)。
 
 ## 权限与隐私
 
@@ -253,8 +298,8 @@ docs/             安装与版本发布说明
 Design/           图标与设计素材
 ```
 
-## 状态
+## 维护状态
 
-- macOS 版本：可用，持续完善体验。
+- macOS 版本：功能稳定，后续以维护为主。
 - Windows 版本：已有接力设计规范，等待原生实现。
 - 最新变更：见 [CHANGELOG.md](CHANGELOG.md)。

@@ -2,16 +2,18 @@
 
 > **Status:** ready for implementation
 >
-> **Product baseline:** macOS `v1.1.0` plus the latest `main` clipboard thumbnail
-> clipping fix
+> **Product baseline:** macOS `v1.1.0` plus latest `main` maintenance fixes:
+> custom clipboard retention, thumbnail layout hardening, stable local install
+> signing, and screenshot toolbar completion hit-testing
 >
 > Recommended target: Windows 11 22H2 or later
 
 This document is the handoff contract for another developer or coding agent.
-The macOS app is the behavior reference and product prototype, not a directly
-portable codebase. Preserve its workflows, data guarantees, copy, paste,
-screenshot, OCR, barcode, and color-picker behavior while replacing Apple
-frameworks and visual conventions with Windows-native APIs and WinUI 3.
+The macOS app is now treated as a feature-stable behavior reference and product
+prototype, not a directly portable codebase. Preserve its workflows, data
+guarantees, copy, paste, screenshot, OCR, barcode, and color-picker behavior
+while replacing Apple frameworks and visual conventions with Windows-native APIs
+and WinUI 3.
 
 ## Product Goal
 

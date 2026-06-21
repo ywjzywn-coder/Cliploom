@@ -2,6 +2,32 @@
 
 All notable changes to Cliploom are documented here.
 
+## [Unreleased]
+
+### Added
+
+- Clipboard history retention can now be customized in Settings. Non-favorite
+  items still default to 30 days / 500 items, while favorites are never removed
+  automatically.
+- Local validation notes are now documented in `docs/LOCAL_TEST_REPORT.md` so
+  the tested macOS behavior is visible outside the development chat.
+
+### Changed
+
+- README now marks the macOS app as feature-stable and clarifies the difference
+  between latest source on `main` and the latest packaged Release DMG.
+- Local development installs use the stable local signing path from
+  `Scripts/install-local.sh`, helping permission prompts stay tied to the same
+  installed app identity during local updates.
+
+### Fixed
+
+- Screenshot Done now rebuilds toolbar hit regions at mouse-down time, so
+  clicking the green checkmark still completes and copies even when the toolbar
+  was just shown and its previous hit cache is stale.
+- Clipboard image rows use safer thumbnail sizing so very tall or narrow images
+  do not stretch the history list layout.
+
 ## [1.1.0] - 2026-06-18
 
 ### Added
