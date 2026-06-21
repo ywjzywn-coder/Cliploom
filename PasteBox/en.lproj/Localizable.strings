@@ -50,7 +50,12 @@
 "settings.startup.section" = "Startup";
 "settings.startup.toggle" = "Open Cliploom at login";
 "settings.history.section" = "History";
-"settings.history.description" = "Non-favorite items are kept for up to 30 days or 500 items. Favorites are not removed automatically.";
+"settings.history.description" = "Non-favorite items are kept for up to %d days or %d items.";
+"settings.history.ageDays" = "Keep for";
+"settings.history.days.value" = "%d days";
+"settings.history.maximumCount" = "Maximum items";
+"settings.history.items.value" = "%d items";
+"settings.history.favoriteNote" = "Favorites are not removed automatically.";
 "settings.clear.button" = "Clear all history…";
 "clear.alert.title" = "Clear all clipboard history?";
 "clear.alert.message" = "This removes saved text and cached images. Your original files will not be deleted.";

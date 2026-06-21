@@ -109,9 +109,6 @@ struct ClipboardPanelView: View {
                     Text("sidebar.clipboard")
                         .font(.headline)
                     Spacer()
-                    Image(systemName: "line.3.horizontal")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity, minHeight: 28)
                 .contentShape(Rectangle())
@@ -127,8 +124,12 @@ struct ClipboardPanelView: View {
                             ? "record.circle"
                             : "pause.circle"
                     )
+                    .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
+                .pasteBoxHoverButtonStyle(
+                    tint: controller.isPaused ? Color.orange : Color.accentColor,
+                    cornerRadius: 7
+                )
                 .foregroundStyle(controller.isPaused ? Color.orange : Color.secondary)
                 .help(controller.isPaused ? "menu.resume" : "menu.pause")
 
@@ -136,8 +137,9 @@ struct ClipboardPanelView: View {
                     controller.showSettings()
                 } label: {
                     Image(systemName: "gearshape")
+                        .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
+                .pasteBoxHoverButtonStyle(cornerRadius: 7)
                 .foregroundStyle(.secondary)
                 .help("menu.settings")
             }
@@ -153,8 +155,9 @@ struct ClipboardPanelView: View {
                         searchText = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
+                            .frame(width: 22, height: 22)
                     }
-                    .buttonStyle(.plain)
+                    .pasteBoxHoverButtonStyle(tint: .secondary, cornerRadius: 6)
                     .foregroundStyle(.tertiary)
                 }
             }
@@ -187,14 +190,8 @@ struct ClipboardPanelView: View {
                     .frame(maxWidth: .infinity, minHeight: 28)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .pasteBoxHoverCapsuleButtonStyle(isSelected: filter == value)
                 .foregroundStyle(filter == value ? Color.primary : Color.secondary)
-                .background(
-                    filter == value
-                        ? Color.accentColor.opacity(0.16)
-                        : Color.clear,
-                    in: Capsule()
-                )
                 .help(
                     "\(String(localized: String.LocalizationValue(value.localizedKey))) · \(count(for: value))"
                 )

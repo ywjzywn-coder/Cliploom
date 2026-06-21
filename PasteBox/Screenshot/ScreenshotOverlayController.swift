@@ -490,6 +490,8 @@ final class ScreenshotOverlayView: NSView {
     private var toolbarHitRegions: [ToolbarHitRegion] = []
     private var toolbarFrame: CGRect?
     private var hoveredToolbarTitle: String?
+    private var hoverAnimationStartedAt: TimeInterval = 0
+    private var hoverAnimationWorkItem: DispatchWorkItem?
     private var pointerLocation: CGPoint?
     private(set) var isColorInspectorSuppressed = false
     private var trackingAreaReference: NSTrackingArea?
@@ -499,6 +501,10 @@ final class ScreenshotOverlayView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { false }
+
+    deinit {
+        hoverAnimationWorkItem?.cancel()
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -561,6 +567,7 @@ final class ScreenshotOverlayView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         pointerLocation = nil
+        updateHoveredToolbarTitle(nil)
         isColorInspectorSuppressed = true
         needsDisplay = true
     }
@@ -570,16 +577,13 @@ final class ScreenshotOverlayView: NSView {
         pointerLocation = clamped(point)
         isColorInspectorSuppressed = false
         if session.selection == nil {
+            updateHoveredToolbarTitle(nil)
             session.hoveredWindow = session.window(at: point)
             needsDisplay = true
             return
         }
 
-        let title = toolbarItem(at: point)?.title
-        if hoveredToolbarTitle != title {
-            hoveredToolbarTitle = title
-            needsDisplay = true
-        }
+        updateHoveredToolbarTitle(toolbarItem(at: point)?.title)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -588,6 +592,10 @@ final class ScreenshotOverlayView: NSView {
         pointerLocation = nil
         isColorInspectorSuppressed = true
         needsDisplay = true
+
+        if let selection = session.selection {
+            rebuildToolbarHitRegions(near: selection)
+        }
 
         if event.clickCount == 2,
            session.selection?.contains(point) == true {
@@ -1035,7 +1043,7 @@ final class ScreenshotOverlayView: NSView {
     }
 
     private func drawToolbar(near selection: CGRect) {
-        toolbarHitRegions.removeAll()
+        rebuildToolbarHitRegions(near: selection)
         let colors: [NSColor] = [.systemRed, .systemYellow, .systemGreen, .systemBlue, .black, .white]
         let toolItems: [(ScreenshotTool, String)] = ScreenshotTool.allCases.map {
             ($0, $0.symbolName)
@@ -1050,11 +1058,11 @@ final class ScreenshotOverlayView: NSView {
         let actionWidth: CGFloat = 7 * (buttonSize + spacing)
         let totalWidth = 18 + toolWidth + colorWidth + lineWidthWidth + actionWidth
         let height: CGFloat = 48
-        let x = min(max(selection.midX - totalWidth / 2, 8), bounds.width - totalWidth - 8)
-        let preferredY = selection.minY - height - 9
-        let y = preferredY >= 8 ? preferredY : min(selection.maxY + 9, bounds.height - height - 8)
-        let toolbarRect = CGRect(x: x, y: y, width: totalWidth, height: height)
-        toolbarFrame = toolbarRect
+        let toolbarRect = toolbarFrame ?? toolbarRect(
+            near: selection,
+            totalWidth: totalWidth,
+            height: height
+        )
 
         NSColor.windowBackgroundColor.withAlphaComponent(0.96).setFill()
         NSBezierPath(roundedRect: toolbarRect, xRadius: 11, yRadius: 11).fill()
@@ -1070,20 +1078,14 @@ final class ScreenshotOverlayView: NSView {
         var cursorX = toolbarRect.minX + 9
         for (tool, symbol) in toolItems {
             let rect = CGRect(x: cursorX, y: toolbarRect.minY + 8, width: buttonSize, height: buttonSize)
+            let title = tool.localizedTitle
             drawSymbolButton(
                 symbol,
                 rect: rect,
                 selected: session.tool == tool,
+                hovered: hoveredToolbarTitle == title,
                 tint: .labelColor,
                 enabled: true
-            )
-            toolbarHitRegions.append(
-                ToolbarHitRegion(
-                    rect: rect,
-                    action: .tool(tool),
-                    title: tool.localizedTitle,
-                    isEnabled: true
-                )
             )
             cursorX += buttonSize + spacing
         }
@@ -1092,6 +1094,14 @@ final class ScreenshotOverlayView: NSView {
             cursorX += 3
             for (index, color) in colors.enumerated() {
                 let rect = CGRect(x: cursorX, y: toolbarRect.minY + 13, width: 22, height: 22)
+                let title = colorTitle(at: index)
+                drawToolbarButtonChrome(
+                    rect: rect.insetBy(dx: -3, dy: -3),
+                    selected: color.isEqual(session.color),
+                    hovered: hoveredToolbarTitle == title,
+                    enabled: true,
+                    tint: color
+                )
                 color.setFill()
                 let swatch = NSBezierPath(ovalIn: rect.insetBy(dx: 2, dy: 2))
                 swatch.fill()
@@ -1104,14 +1114,6 @@ final class ScreenshotOverlayView: NSView {
                     ring.lineWidth = 2
                     ring.stroke()
                 }
-                toolbarHitRegions.append(
-                    ToolbarHitRegion(
-                        rect: rect,
-                        action: .color(color),
-                        title: colorTitle(at: index),
-                        isEnabled: true
-                    )
-                )
                 cursorX += 25
             }
         }
@@ -1121,10 +1123,14 @@ final class ScreenshotOverlayView: NSView {
             let lineWidths = [2.0, 4.0, 8.0] as [CGFloat]
             for (index, width) in lineWidths.enumerated() {
                 let rect = CGRect(x: cursorX, y: toolbarRect.minY + 8, width: 28, height: 32)
-                if session.lineWidth == width {
-                    NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
-                    NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
-                }
+                let title = lineWidthTitle(at: index)
+                drawToolbarButtonChrome(
+                    rect: rect,
+                    selected: session.lineWidth == width,
+                    hovered: hoveredToolbarTitle == title,
+                    enabled: true,
+                    tint: .labelColor
+                )
                 NSColor.labelColor.setFill()
                 NSBezierPath(
                     ovalIn: CGRect(
@@ -1134,14 +1140,6 @@ final class ScreenshotOverlayView: NSView {
                         height: width
                     )
                 ).fill()
-                toolbarHitRegions.append(
-                    ToolbarHitRegion(
-                        rect: rect,
-                        action: .width(width),
-                        title: lineWidthTitle(at: index),
-                        isEnabled: true
-                    )
-                )
                 cursorX += 30
             }
         }
@@ -1198,22 +1196,15 @@ final class ScreenshotOverlayView: NSView {
             )
         ]
         cursorX += 3
-        for (action, symbol, tint, title, isEnabled) in actions {
+        for (_, symbol, tint, title, isEnabled) in actions {
             let rect = CGRect(x: cursorX, y: toolbarRect.minY + 8, width: buttonSize, height: buttonSize)
             drawSymbolButton(
                 symbol,
                 rect: rect,
                 selected: false,
+                hovered: hoveredToolbarTitle == title,
                 tint: tint,
                 enabled: isEnabled
-            )
-            toolbarHitRegions.append(
-                ToolbarHitRegion(
-                    rect: rect,
-                    action: action,
-                    title: title,
-                    isEnabled: isEnabled
-                )
             )
             cursorX += buttonSize + spacing
         }
@@ -1230,6 +1221,133 @@ final class ScreenshotOverlayView: NSView {
         }
     }
 
+    private func rebuildToolbarHitRegions(near selection: CGRect) {
+        toolbarHitRegions.removeAll()
+        let colors: [NSColor] = [.systemRed, .systemYellow, .systemGreen, .systemBlue, .black, .white]
+        let toolItems: [(ScreenshotTool, String)] = ScreenshotTool.allCases.map {
+            ($0, $0.symbolName)
+        }
+        let showsColors = session.tool.supportsColor
+        let showsLineWidths = session.tool.supportsLineWidth
+        let buttonSize: CGFloat = 30
+        let spacing: CGFloat = 4
+        let toolWidth = CGFloat(toolItems.count) * (buttonSize + spacing)
+        let colorWidth = showsColors ? CGFloat(colors.count) * 25 + 6 : 0
+        let lineWidthWidth: CGFloat = showsLineWidths ? 96 : 0
+        let actionWidth: CGFloat = 7 * (buttonSize + spacing)
+        let totalWidth = 18 + toolWidth + colorWidth + lineWidthWidth + actionWidth
+        let toolbarRect = toolbarRect(
+            near: selection,
+            totalWidth: totalWidth,
+            height: 48
+        )
+        toolbarFrame = toolbarRect
+
+        var cursorX = toolbarRect.minX + 9
+        for (tool, _) in toolItems {
+            let rect = CGRect(
+                x: cursorX,
+                y: toolbarRect.minY + 8,
+                width: buttonSize,
+                height: buttonSize
+            )
+            toolbarHitRegions.append(
+                ToolbarHitRegion(
+                    rect: rect,
+                    action: .tool(tool),
+                    title: tool.localizedTitle,
+                    isEnabled: true
+                )
+            )
+            cursorX += buttonSize + spacing
+        }
+
+        if showsColors {
+            cursorX += 3
+            for (index, color) in colors.enumerated() {
+                let rect = CGRect(
+                    x: cursorX,
+                    y: toolbarRect.minY + 13,
+                    width: 22,
+                    height: 22
+                )
+                toolbarHitRegions.append(
+                    ToolbarHitRegion(
+                        rect: rect,
+                        action: .color(color),
+                        title: colorTitle(at: index),
+                        isEnabled: true
+                    )
+                )
+                cursorX += 25
+            }
+        }
+
+        if showsLineWidths {
+            cursorX += 6
+            let lineWidths = [2.0, 4.0, 8.0] as [CGFloat]
+            for (index, width) in lineWidths.enumerated() {
+                let rect = CGRect(
+                    x: cursorX,
+                    y: toolbarRect.minY + 8,
+                    width: 28,
+                    height: 32
+                )
+                toolbarHitRegions.append(
+                    ToolbarHitRegion(
+                        rect: rect,
+                        action: .width(width),
+                        title: lineWidthTitle(at: index),
+                        isEnabled: true
+                    )
+                )
+                cursorX += 30
+            }
+        }
+
+        let actions: [(ToolbarAction, String, Bool)] = [
+            (.recognizeText, String(localized: "screenshot.action.ocr"), true),
+            (.translate, String(localized: "screenshot.action.translate"), true),
+            (.scan, String(localized: "screenshot.action.scan"), true),
+            (.undo, String(localized: "screenshot.action.undo"), !session.annotations.isEmpty),
+            (.save, String(localized: "screenshot.action.save"), true),
+            (.cancel, String(localized: "action.cancel"), true),
+            (.done, String(localized: "screenshot.action.done"), true)
+        ]
+        cursorX += 3
+        for (action, title, isEnabled) in actions {
+            let rect = CGRect(
+                x: cursorX,
+                y: toolbarRect.minY + 8,
+                width: buttonSize,
+                height: buttonSize
+            )
+            toolbarHitRegions.append(
+                ToolbarHitRegion(
+                    rect: rect,
+                    action: action,
+                    title: title,
+                    isEnabled: isEnabled
+                )
+            )
+            cursorX += buttonSize + spacing
+        }
+    }
+
+    private func toolbarRect(
+        near selection: CGRect,
+        totalWidth: CGFloat,
+        height: CGFloat
+    ) -> CGRect {
+        let maximumX = max(bounds.width - totalWidth - 8, 8)
+        let x = min(max(selection.midX - totalWidth / 2, 8), maximumX)
+        let preferredY = selection.minY - height - 9
+        let y = preferredY >= 8
+            ? preferredY
+            : min(selection.maxY + 9, bounds.height - height - 8)
+        return CGRect(x: x, y: y, width: totalWidth, height: height)
+    }
+
     private func toolbarItem(at point: CGPoint) -> ToolbarHitRegion? {
         guard let index = ScreenshotToolbarGeometry.hitIndex(
             at: point,
@@ -1240,17 +1358,93 @@ final class ScreenshotOverlayView: NSView {
         return toolbarHitRegions[index]
     }
 
+    private func updateHoveredToolbarTitle(_ title: String?) {
+        guard hoveredToolbarTitle != title else { return }
+        hoveredToolbarTitle = title
+        hoverAnimationStartedAt = ProcessInfo.processInfo.systemUptime
+        hoverAnimationWorkItem?.cancel()
+        if title != nil && allowsHoverMotion {
+            scheduleHoverAnimationFrame()
+        }
+        needsDisplay = true
+    }
+
+    private func scheduleHoverAnimationFrame() {
+        let elapsed = ProcessInfo.processInfo.systemUptime - hoverAnimationStartedAt
+        guard allowsHoverMotion,
+              hoveredToolbarTitle != nil,
+              elapsed < 0.12
+        else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.needsDisplay = true
+            self.scheduleHoverAnimationFrame()
+        }
+        hoverAnimationWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0 / 30.0, execute: workItem)
+    }
+
+    private var hoverAnimationProgress: CGFloat {
+        guard allowsHoverMotion, hoveredToolbarTitle != nil else { return 1 }
+        let elapsed = ProcessInfo.processInfo.systemUptime - hoverAnimationStartedAt
+        let progress = min(max(elapsed / 0.12, 0), 1)
+        return CGFloat(1 - pow(1 - progress, 3))
+    }
+
+    private var allowsHoverMotion: Bool {
+        !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
+    private func drawToolbarButtonChrome(
+        rect: CGRect,
+        selected: Bool,
+        hovered: Bool,
+        enabled: Bool,
+        tint: NSColor
+    ) {
+        guard selected || hovered else { return }
+        let progress = hovered ? hoverAnimationProgress : 1
+        let roundedRect = rect.insetBy(
+            dx: hovered ? -1.5 * progress : 0,
+            dy: hovered ? -1.5 * progress : 0
+        )
+        let radius = max(7, min(roundedRect.width, roundedRect.height) / 3.4)
+        let fillColor: NSColor
+        if selected {
+            fillColor = NSColor.controlAccentColor.withAlphaComponent(hovered ? 0.24 : 0.19)
+        } else {
+            fillColor = tint.withAlphaComponent(enabled ? 0.13 * progress : 0.06 * progress)
+        }
+        fillColor.setFill()
+        NSBezierPath(roundedRect: roundedRect, xRadius: radius, yRadius: radius).fill()
+
+        if hovered && enabled {
+            tint.withAlphaComponent(0.42 * progress).setStroke()
+            let border = NSBezierPath(
+                roundedRect: roundedRect.insetBy(dx: 0.5, dy: 0.5),
+                xRadius: radius,
+                yRadius: radius
+            )
+            border.lineWidth = 1
+            border.stroke()
+        }
+    }
+
     private func drawSymbolButton(
         _ symbol: String,
         rect: CGRect,
         selected: Bool,
+        hovered: Bool,
         tint: NSColor,
         enabled: Bool
     ) {
-        if selected {
-            NSColor.controlAccentColor.withAlphaComponent(0.2).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7).fill()
-        }
+        drawToolbarButtonChrome(
+            rect: rect,
+            selected: selected,
+            hovered: hovered,
+            enabled: enabled,
+            tint: tint
+        )
         guard let image = NSImage(
             systemSymbolName: symbol,
             accessibilityDescription: nil
@@ -1263,7 +1457,9 @@ final class ScreenshotOverlayView: NSView {
         let tintedImage = configuredImage.tinted(
             with: enabled ? tint : tint.withAlphaComponent(0.28)
         )
-        let iconContainer = rect.insetBy(dx: 7, dy: 7)
+        let pop = hovered && enabled ? sin(hoverAnimationProgress * .pi) : 0
+        let iconInset = 7 - pop * 1.6
+        let iconContainer = rect.insetBy(dx: iconInset, dy: iconInset)
         let iconRect = ScreenshotToolbarGeometry.aspectFitRect(
             contentSize: tintedImage.size,
             in: iconContainer

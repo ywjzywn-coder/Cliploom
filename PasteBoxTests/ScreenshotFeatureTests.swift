@@ -424,6 +424,44 @@ final class ScreenshotOverlayInputTests: XCTestCase {
         XCTAssertEqual(cancellationCount, 1)
     }
 
+    func testDoneButtonWorksBeforeToolbarHitRegionsAreDrawn() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let session = ScreenshotSession(
+            image: try makeSolidImage(color: .systemBlue),
+            screen: screen,
+            windows: []
+        )
+        session.selection = CGRect(x: 100, y: 250, width: 240, height: 160)
+        let view = ScreenshotOverlayView(
+            frame: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        view.session = session
+
+        var finishCount = 0
+        var cancellationCount = 0
+        view.onFinish = { finishCount += 1 }
+        view.onCancel = { cancellationCount += 1 }
+
+        let event = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: CGPoint(x: 409, y: 216),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+
+        view.mouseDown(with: event)
+
+        XCTAssertEqual(finishCount, 1)
+        XCTAssertEqual(cancellationCount, 0)
+    }
+
     func testColorInspectorCopiesHoveredHexValue() throws {
         let screen = try XCTUnwrap(NSScreen.main)
         let image = try makeSolidImage(

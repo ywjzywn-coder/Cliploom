@@ -151,8 +151,9 @@ private struct ScreenshotTranslationRootView: View {
                 model.onClose?()
             } label: {
                 Image(systemName: "xmark")
+                    .frame(width: 28, height: 28)
             }
-            .buttonStyle(.plain)
+            .pasteBoxHoverButtonStyle(tint: .secondary, cornerRadius: 7)
             .help(Text("action.cancel"))
         }
     }

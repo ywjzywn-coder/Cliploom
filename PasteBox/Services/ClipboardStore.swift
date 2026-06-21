@@ -5,10 +5,16 @@ import SwiftData
 final class ClipboardStore {
     let context: ModelContext
     let imageDirectory: URL
+    private let defaults: UserDefaults
 
-    init(container: ModelContainer, imageDirectory: URL? = nil) {
+    init(
+        container: ModelContainer,
+        imageDirectory: URL? = nil,
+        defaults: UserDefaults = .standard
+    ) {
         context = container.mainContext
         context.autosaveEnabled = true
+        self.defaults = defaults
 
         if let imageDirectory {
             self.imageDirectory = imageDirectory
@@ -93,19 +99,27 @@ final class ClipboardStore {
         try? context.save()
     }
 
-    func cleanup(now: Date = .now, maximumCount: Int = 500, maximumAgeDays: Int = 30) throws {
+    func cleanup(
+        now: Date = .now,
+        maximumCount: Int? = nil,
+        maximumAgeDays: Int? = nil
+    ) throws {
         let descriptor = FetchDescriptor<ClipboardItem>(
             sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
         )
         let items = try context.fetch(descriptor).filter { !$0.isFavorite }
+        let resolvedMaximumCount = maximumCount
+            ?? ClipboardHistorySettings.maximumCount(defaults: defaults)
+        let resolvedMaximumAgeDays = maximumAgeDays
+            ?? ClipboardHistorySettings.maximumAgeDays(defaults: defaults)
         let cutoff = Calendar.current.date(
             byAdding: .day,
-            value: -maximumAgeDays,
+            value: -resolvedMaximumAgeDays,
             to: now
         ) ?? now
 
         for (index, item) in items.enumerated()
-        where index >= maximumCount || item.updatedAt < cutoff {
+        where index >= resolvedMaximumCount || item.updatedAt < cutoff {
             removeImage(for: item)
             context.delete(item)
         }

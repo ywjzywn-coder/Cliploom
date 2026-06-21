@@ -8,7 +8,17 @@ final class ClipboardMonitor {
     private var timer: Timer?
     private var lastChangeCount: Int
     private(set) var ignoredChangeCount: Int?
-    var isPaused = false
+    var isPaused = false {
+        didSet {
+            guard oldValue != isPaused else { return }
+            if isPaused {
+                stop()
+            } else {
+                lastChangeCount = pasteboard.changeCount
+                start()
+            }
+        }
+    }
 
     init(pasteboard: NSPasteboard = .general, store: ClipboardStore) {
         self.pasteboard = pasteboard
@@ -42,7 +52,7 @@ final class ClipboardMonitor {
             ignoredChangeCount = nil
             return
         }
-        guard !isPaused, let payload = ClipboardPayload.read(from: pasteboard) else { return }
+        guard let payload = ClipboardPayload.read(from: pasteboard) else { return }
         _ = try? store.save(payload)
     }
 }

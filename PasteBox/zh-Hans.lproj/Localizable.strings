@@ -50,7 +50,12 @@
 "settings.startup.section" = "启动";
 "settings.startup.toggle" = "登录时启动 Cliploom";
 "settings.history.section" = "历史记录";
-"settings.history.description" = "未收藏记录最多保留 30 天或 500 条，收藏记录不会自动删除。";
+"settings.history.description" = "未收藏记录最多保留 %d 天或 %d 条。";
+"settings.history.ageDays" = "保留时长";
+"settings.history.days.value" = "%d 天";
+"settings.history.maximumCount" = "最多条数";
+"settings.history.items.value" = "%d 条";
+"settings.history.favoriteNote" = "收藏记录不会自动删除。";
 "settings.clear.button" = "清空全部历史…";
 "clear.alert.title" = "确定清空全部剪贴板历史？";
 "clear.alert.message" = "保存的文本和图片缓存会被删除，但不会删除你的原文件。";

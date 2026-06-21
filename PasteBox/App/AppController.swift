@@ -143,6 +143,10 @@ final class AppController: ObservableObject {
         showStatus(String(localized: "status.cleared"))
     }
 
+    func cleanupHistory() {
+        try? store?.cleanup()
+    }
+
     func revealInFinder(_ item: ClipboardItem) {
         let urls = item.filePaths
             .map { URL(fileURLWithPath: $0) }

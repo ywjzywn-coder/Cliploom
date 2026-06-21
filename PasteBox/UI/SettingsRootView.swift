@@ -22,6 +22,10 @@ private struct SettingsView: View {
     @ObservedObject private var permissionManager = AppController.shared.permissionManager
     @ObservedObject private var hotKeyManager = AppController.shared.hotKeyManager
     @ObservedObject private var launchManager = AppController.shared.launchAtLoginManager
+    @AppStorage(ClipboardHistorySettings.maximumCountKey)
+    private var maximumHistoryCount = ClipboardHistorySettings.defaultMaximumCount
+    @AppStorage(ClipboardHistorySettings.maximumAgeDaysKey)
+    private var maximumHistoryAgeDays = ClipboardHistorySettings.defaultMaximumAgeDays
     @State private var showClearConfirmation = false
 
     var body: some View {
@@ -77,7 +81,60 @@ private struct SettingsView: View {
                     }
 
                     Section("settings.history.section") {
-                        Text("settings.history.description")
+                        Text(
+                            String(
+                                format: String(localized: "settings.history.description"),
+                                maximumHistoryAgeDays,
+                                maximumHistoryCount
+                            )
+                        )
+                            .foregroundStyle(.secondary)
+                        Stepper(
+                            value: Binding(
+                                get: { maximumHistoryAgeDays },
+                                set: {
+                                    maximumHistoryAgeDays = $0
+                                    ClipboardHistorySettings.saveMaximumAgeDays($0)
+                                    controller.cleanupHistory()
+                                }
+                            ),
+                            in: ClipboardHistorySettings.ageDaysRange,
+                            step: 1
+                        ) {
+                            LabeledContent("settings.history.ageDays") {
+                                Text(
+                                    String(
+                                        format: String(localized: "settings.history.days.value"),
+                                        maximumHistoryAgeDays
+                                    )
+                                )
+                            }
+                        }
+
+                        Stepper(
+                            value: Binding(
+                                get: { maximumHistoryCount },
+                                set: {
+                                    maximumHistoryCount = $0
+                                    ClipboardHistorySettings.saveMaximumCount($0)
+                                    controller.cleanupHistory()
+                                }
+                            ),
+                            in: ClipboardHistorySettings.countRange,
+                            step: 10
+                        ) {
+                            LabeledContent("settings.history.maximumCount") {
+                                Text(
+                                    String(
+                                        format: String(localized: "settings.history.items.value"),
+                                        maximumHistoryCount
+                                    )
+                                )
+                            }
+                        }
+
+                        Text("settings.history.favoriteNote")
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                         Button("settings.clear.button", role: .destructive) {
                             showClearConfirmation = true
@@ -87,6 +144,9 @@ private struct SettingsView: View {
                 .formStyle(.grouped)
             }
             .tabItem { Label("settings.general", systemImage: "gearshape") }
+            .onAppear {
+                normalizeHistorySettings()
+            }
 
             PermissionSettingsView()
                 .tabItem { Label("settings.permissions", systemImage: "hand.raised") }
@@ -96,6 +156,18 @@ private struct SettingsView: View {
             Button("action.clear", role: .destructive) { controller.clearAll() }
         } message: {
             Text("clear.alert.message")
+        }
+    }
+
+    private func normalizeHistorySettings() {
+        let normalizedAgeDays = ClipboardHistorySettings.maximumAgeDays()
+        if maximumHistoryAgeDays != normalizedAgeDays {
+            maximumHistoryAgeDays = normalizedAgeDays
+        }
+
+        let normalizedCount = ClipboardHistorySettings.maximumCount()
+        if maximumHistoryCount != normalizedCount {
+            maximumHistoryCount = normalizedCount
         }
     }
 }
@@ -154,8 +226,10 @@ private struct PermissionSettingsView: View {
                             permissionManager.refresh()
                         } label: {
                             Label("permission.refresh", systemImage: "arrow.clockwise")
+                                .padding(.horizontal, 8)
+                                .frame(minHeight: 28)
                         }
-                        .buttonStyle(.plain)
+                        .pasteBoxHoverCapsuleButtonStyle(tint: .secondary)
                         .foregroundStyle(.secondary)
                     }
                 }
@@ -194,8 +268,10 @@ private struct PermissionSettingsView: View {
                             controller.refreshScreenshotWarmState()
                         } label: {
                             Label("permission.refresh", systemImage: "arrow.clockwise")
+                                .padding(.horizontal, 8)
+                                .frame(minHeight: 28)
                         }
-                        .buttonStyle(.plain)
+                        .pasteBoxHoverCapsuleButtonStyle(tint: .secondary)
                         .foregroundStyle(.secondary)
                     }
                 }
@@ -303,8 +379,9 @@ private struct OnboardingView: View {
                     permissionManager.refresh()
                 } label: {
                     Image(systemName: "arrow.clockwise")
+                        .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
+                .pasteBoxHoverButtonStyle(tint: .secondary, cornerRadius: 7)
                 .foregroundStyle(.secondary)
                 .help("permission.refresh")
 
