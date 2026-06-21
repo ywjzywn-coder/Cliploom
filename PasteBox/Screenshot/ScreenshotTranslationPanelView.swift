@@ -19,10 +19,13 @@ final class ScreenshotTranslationModel: ObservableObject {
     private var requestID = UUID()
     private var configuredTargetIdentifier: String?
 
-    func showPreview(_ image: CGImage) {
+    func showPreview(_ image: CGImage, displaySize: CGSize? = nil) {
         previewImage = NSImage(
             cgImage: image,
-            size: NSSize(width: image.width, height: image.height)
+            size: displaySize ?? CGSize(
+                width: image.width,
+                height: image.height
+            )
         )
     }
 
@@ -287,8 +290,8 @@ final class ScreenshotTranslationPanelView: NSVisualEffectView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func showPreview(_ image: CGImage) {
-        model.showPreview(image)
+    func showPreview(_ image: CGImage, displaySize: CGSize? = nil) {
+        model.showPreview(image, displaySize: displaySize)
     }
 
     func showRecognizing() {

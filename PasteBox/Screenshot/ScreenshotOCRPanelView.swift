@@ -6,7 +6,16 @@ private final class LiveTextPreviewView:
     NSView,
     ImageAnalysisOverlayViewDelegate
 {
-    private let imageView = NSImageView()
+    private final class PreviewImageView: NSImageView {
+        override var intrinsicContentSize: NSSize {
+            NSSize(
+                width: NSView.noIntrinsicMetric,
+                height: NSView.noIntrinsicMetric
+            )
+        }
+    }
+
+    private let imageView = PreviewImageView()
     private lazy var analysisOverlay = ImageAnalysisOverlayView(self)
 
     override var intrinsicContentSize: NSSize {
@@ -59,10 +68,10 @@ private final class LiveTextPreviewView:
         analysisOverlay.setContentsRectNeedsUpdate()
     }
 
-    func showImage(_ image: CGImage) {
+    func showImage(_ image: CGImage, displaySize: CGSize) {
         imageView.image = NSImage(
             cgImage: image,
-            size: NSSize(width: image.width, height: image.height)
+            size: displaySize
         )
         analysisOverlay.analysis = nil
         analysisOverlay.resetSelection()
@@ -213,8 +222,14 @@ final class ScreenshotOCRPanelView: NSVisualEffectView, NSTextViewDelegate {
         previewImageView.showAnalysis(nil)
     }
 
-    func showPreview(_ image: CGImage) {
-        previewImageView.showImage(image)
+    func showPreview(_ image: CGImage, displaySize: CGSize? = nil) {
+        previewImageView.showImage(
+            image,
+            displaySize: displaySize ?? CGSize(
+                width: image.width,
+                height: image.height
+            )
+        )
     }
 
     func showResult(_ result: TextRecognitionResult) {

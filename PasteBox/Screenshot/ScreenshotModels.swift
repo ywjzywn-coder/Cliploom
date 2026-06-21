@@ -270,7 +270,7 @@ enum ScreenshotToolbarGeometry {
     static func hitIndex(
         at point: CGPoint,
         in rects: [CGRect],
-        expansion: CGFloat = 3
+        expansion: CGFloat = 8
     ) -> Int? {
         if let exactIndex = rects.firstIndex(where: { $0.contains(point) }) {
             return exactIndex
@@ -358,16 +358,33 @@ enum ScreenshotPreviewGeometry {
 }
 
 enum OCRPanelGeometry {
+    private static let minimumWidth: CGFloat = 640
+    private static let minimumHeight: CGFloat = 420
+    private static let preferredMaximumWidth: CGFloat = 1100
+    private static let preferredMaximumHeight: CGFloat = 680
+    private static let maximumScreenWidthRatio: CGFloat = 0.86
+    private static let maximumScreenHeightRatio: CGFloat = 0.82
+
     static func preferredSize(
         selection: CGSize,
         maximum: CGSize
     ) -> CGSize {
+        guard maximum.width > 0, maximum.height > 0 else { return .zero }
+
+        let allowedWidth = min(
+            maximum.width,
+            max(minimumWidth, min(preferredMaximumWidth, maximum.width * maximumScreenWidthRatio))
+        )
+        let allowedHeight = min(
+            maximum.height,
+            max(minimumHeight, min(preferredMaximumHeight, maximum.height * maximumScreenHeightRatio))
+        )
         let previewWidth = max(360, selection.width)
         let resultWidth = max(280, previewWidth * 0.52)
 
         return CGSize(
-            width: min(previewWidth + resultWidth + 72, maximum.width),
-            height: min(max(460, selection.height + 116), maximum.height)
+            width: min(max(minimumWidth, previewWidth + resultWidth + 72), allowedWidth),
+            height: min(max(minimumHeight, selection.height + 116), allowedHeight)
         )
     }
 }
@@ -378,6 +395,9 @@ enum BarcodePanelGeometry {
     private static let minimumWidth: CGFloat = 420
     private static let minimumHeight: CGFloat = 340
     private static let preferredMaximumWidth: CGFloat = 960
+    private static let preferredMaximumHeight: CGFloat = 640
+    private static let maximumScreenWidthRatio: CGFloat = 0.86
+    private static let maximumScreenHeightRatio: CGFloat = 0.78
 
     static func preferredSize(
         imageSize: CGSize,
@@ -386,20 +406,28 @@ enum BarcodePanelGeometry {
     ) -> CGSize {
         guard maximum.width > 0, maximum.height > 0 else { return .zero }
 
+        let allowedWidth = min(
+            maximum.width,
+            max(minimumWidth, min(preferredMaximumWidth, maximum.width * maximumScreenWidthRatio))
+        )
+        let allowedHeight = min(
+            maximum.height,
+            max(minimumHeight, min(preferredMaximumHeight, maximum.height * maximumScreenHeightRatio))
+        )
         let width = min(
             max(minimumWidth, selectionSize.width + horizontalChrome),
-            min(preferredMaximumWidth, maximum.width)
+            allowedWidth
         )
         let previewWidth = max(width - horizontalChrome, 1)
         let aspectRatio = imageSize.width / max(imageSize.height, 1)
         let previewHeight = previewWidth / max(aspectRatio, 0.01)
         let height = min(
             max(minimumHeight, previewHeight + verticalChrome),
-            maximum.height
+            allowedHeight
         )
 
         return CGSize(
-            width: min(width, maximum.width),
+            width: width,
             height: height
         )
     }

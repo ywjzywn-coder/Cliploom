@@ -13,6 +13,7 @@ protocol ScreenshotOverlayControllerDelegate: AnyObject {
         _ controller: ScreenshotOverlayController,
         didFinishWith data: Data
     )
+    func screenshotOverlayDidFailToRender(_ controller: ScreenshotOverlayController)
     func screenshotOverlay(
         _ controller: ScreenshotOverlayController,
         didRequestSave data: Data
@@ -94,11 +95,19 @@ final class ScreenshotOverlayController: NSWindowController {
             self?.cancelSession()
         }
         overlayView.onFinish = { [weak self] in
-            guard let self, let data = self.renderPNG() else { return }
+            guard let self else { return }
+            guard let data = self.renderPNG() else {
+                self.delegate?.screenshotOverlayDidFailToRender(self)
+                return
+            }
             self.delegate?.screenshotOverlay(self, didFinishWith: data)
         }
         overlayView.onSave = { [weak self] in
-            guard let self, let data = self.renderPNG() else { return }
+            guard let self else { return }
+            guard let data = self.renderPNG() else {
+                self.delegate?.screenshotOverlayDidFailToRender(self)
+                return
+            }
             self.delegate?.screenshotOverlay(self, didRequestSave: data)
         }
         overlayView.onScan = { [weak self] in
@@ -197,7 +206,7 @@ final class ScreenshotOverlayController: NSWindowController {
     private func requestTextRecognition() {
         guard let image = croppedImage() else { return }
         let panel = ensureOCRResultPanel()
-        panel.showPreview(image)
+        panel.showPreview(image, displaySize: selectedDisplaySize(for: image))
         panel.showLoading()
         delegate?.screenshotOverlay(self, didRequestRecognizeText: image)
     }
@@ -205,7 +214,7 @@ final class ScreenshotOverlayController: NSWindowController {
     private func requestTranslation() {
         guard let image = croppedImage() else { return }
         let panel = ensureTranslationResultPanel()
-        panel.showPreview(image)
+        panel.showPreview(image, displaySize: selectedDisplaySize(for: image))
         panel.showRecognizing()
         delegate?.screenshotOverlay(self, didRequestTranslate: image)
     }
@@ -213,7 +222,7 @@ final class ScreenshotOverlayController: NSWindowController {
     private func requestBarcodeScan() {
         guard let image = croppedImage() else { return }
         let panel = ensureBarcodeResultPanel(previewImage: image)
-        panel.showPreview(image)
+        panel.showPreview(image, displaySize: selectedDisplaySize(for: image))
         panel.showLoading()
         delegate?.screenshotOverlay(self, didRequestScan: image)
     }
@@ -401,7 +410,7 @@ final class ScreenshotOverlayController: NSWindowController {
     }
 
     private func croppedImage() -> CGImage? {
-        guard let selection = session.selection,
+        guard let selection = session.selection?.standardized,
               selection.width >= 2,
               selection.height >= 2
         else { return nil }
@@ -410,8 +419,21 @@ final class ScreenshotOverlayController: NSWindowController {
         return session.image.cropping(to: pixelRect)
     }
 
+    private func selectedDisplaySize(for image: CGImage) -> CGSize {
+        guard let selection = session.selection?.standardized,
+              selection.width > 0,
+              selection.height > 0
+        else {
+            return CGSize(width: image.width, height: image.height)
+        }
+        return selection.size
+    }
+
     private func renderPNG(includeAnnotations: Bool = true) -> Data? {
-        guard let selection = session.selection, selection.width >= 2, selection.height >= 2 else {
+        guard let selection = session.selection?.standardized,
+              selection.width >= 2,
+              selection.height >= 2
+        else {
             return nil
         }
         return ScreenshotRenderer.pngData(

@@ -189,6 +189,22 @@ final class ScreenshotOCRPanelTests: XCTestCase {
         XCTAssertTrue(allText(in: panel).contains("Cliploom OCR"))
     }
 
+    func testPreviewUsesLogicalDisplaySizeOnScaledDisplays() throws {
+        let image = try makeSolidImage(width: 3840, height: 2160)
+        let panel = ScreenshotOCRPanelView(
+            frame: CGRect(x: 0, y: 0, width: 960, height: 640)
+        )
+
+        panel.showPreview(
+            image,
+            displaySize: CGSize(width: 1920, height: 1080)
+        )
+
+        let sizes = imageSizes(in: panel)
+        XCTAssertTrue(sizes.contains(NSSize(width: 1920, height: 1080)))
+        XCTAssertFalse(sizes.contains(NSSize(width: 3840, height: 2160)))
+    }
+
     private func allText(in view: NSView) -> [String] {
         let text: [String]
         if let textView = view as? NSTextView {
@@ -199,6 +215,28 @@ final class ScreenshotOCRPanelTests: XCTestCase {
             text = []
         }
         return text + view.subviews.flatMap(allText)
+    }
+
+    private func imageSizes(in view: NSView) -> [NSSize] {
+        let imageSize = (view as? NSImageView)?.image.map { [$0.size] } ?? []
+        return imageSize + view.subviews.flatMap(imageSizes)
+    }
+
+    private func makeSolidImage(width: Int, height: Int) throws -> CGImage {
+        let context = try XCTUnwrap(
+            CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        )
+        context.setFillColor(NSColor.white.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return try XCTUnwrap(context.makeImage())
     }
 }
 
@@ -462,6 +500,41 @@ final class ScreenshotOverlayInputTests: XCTestCase {
         XCTAssertEqual(cancellationCount, 0)
     }
 
+    func testDoneButtonAcceptsEdgeClicks() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let session = ScreenshotSession(
+            image: try makeSolidImage(color: .systemBlue),
+            screen: screen,
+            windows: []
+        )
+        session.selection = CGRect(x: 100, y: 250, width: 240, height: 160)
+        let view = ScreenshotOverlayView(
+            frame: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        view.session = session
+
+        var finishCount = 0
+        view.onFinish = { finishCount += 1 }
+
+        let event = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: CGPoint(x: 430, y: 216),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+
+        view.mouseDown(with: event)
+
+        XCTAssertEqual(finishCount, 1)
+    }
+
     func testColorInspectorCopiesHoveredHexValue() throws {
         let screen = try XCTUnwrap(NSScreen.main)
         let image = try makeSolidImage(
@@ -562,7 +635,7 @@ final class OCRPanelGeometryTests: XCTestCase {
             maximum: CGSize(width: 1400, height: 800)
         )
 
-        XCTAssertEqual(size, CGSize(width: 712, height: 460))
+        XCTAssertEqual(size, CGSize(width: 712, height: 420))
     }
 
     func testPanelGrowsWithSelection() {
@@ -581,7 +654,10 @@ final class OCRPanelGeometryTests: XCTestCase {
             maximum: CGSize(width: 1200, height: 720)
         )
 
-        XCTAssertEqual(size, CGSize(width: 1200, height: 720))
+        XCTAssertEqual(size.width, 1032, accuracy: 0.001)
+        XCTAssertEqual(size.height, 590.4, accuracy: 0.001)
+        XCTAssertLessThan(size.width, 1200)
+        XCTAssertLessThan(size.height, 720)
     }
 }
 
@@ -647,7 +723,19 @@ final class BarcodePanelGeometryTests: XCTestCase {
         )
 
         XCTAssertEqual(size.width, 420)
-        XCTAssertEqual(size.height, 720)
+        XCTAssertEqual(size.height, 561.6, accuracy: 0.001)
+        XCTAssertLessThan(size.height, 720)
+    }
+
+    func testLargeBarcodeSelectionDoesNotBecomeFullScreen() {
+        let size = BarcodePanelGeometry.preferredSize(
+            imageSize: CGSize(width: 2400, height: 1400),
+            selectionSize: CGSize(width: 1800, height: 1100),
+            maximum: CGSize(width: 1440, height: 900)
+        )
+
+        XCTAssertEqual(size.width, 960)
+        XCTAssertLessThan(size.height, 900)
     }
 }
 
@@ -942,6 +1030,21 @@ final class BarcodePanelTests: XCTestCase {
         XCTAssertEqual(unsupportedButtons(in: panel).count, 1)
     }
 
+    func testPreviewUsesLogicalDisplaySizeOnScaledDisplays() throws {
+        let panel = ScreenshotBarcodePanelView(
+            frame: CGRect(x: 0, y: 0, width: 960, height: 640)
+        )
+
+        panel.showPreview(
+            try makeSolidImage(width: 3840, height: 2160),
+            displaySize: CGSize(width: 1920, height: 1080)
+        )
+
+        let sizes = imageSizes(in: panel)
+        XCTAssertTrue(sizes.contains(NSSize(width: 1920, height: 1080)))
+        XCTAssertFalse(sizes.contains(NSSize(width: 3840, height: 2160)))
+    }
+
     private func linkButtons(in view: NSView) -> [NSButton] {
         markerButtons(in: view, identifier: "barcode.link")
     }
@@ -960,6 +1063,11 @@ final class BarcodePanelTests: XCTestCase {
         return ownButton + view.subviews.flatMap {
             markerButtons(in: $0, identifier: identifier)
         }
+    }
+
+    private func imageSizes(in view: NSView) -> [NSSize] {
+        let imageSize = (view as? NSImageView)?.image.map { [$0.size] } ?? []
+        return imageSize + view.subviews.flatMap(imageSizes)
     }
 
     private func makeSolidImage(width: Int, height: Int) throws -> CGImage {

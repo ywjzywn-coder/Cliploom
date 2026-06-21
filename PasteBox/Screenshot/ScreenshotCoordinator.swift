@@ -128,6 +128,10 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
         showStatus(String(localized: "screenshot.copied"))
     }
 
+    func screenshotOverlayDidFailToRender(_ controller: ScreenshotOverlayController) {
+        showStatus(String(localized: "screenshot.copy.failed"))
+    }
+
     func screenshotOverlay(
         _ controller: ScreenshotOverlayController,
         didRequestSave data: Data

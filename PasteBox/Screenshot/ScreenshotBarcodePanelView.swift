@@ -94,9 +94,18 @@ private final class BarcodeMarkerButton: NSButton {
 
 @MainActor
 private final class BarcodePreviewView: NSView {
+    private final class PreviewImageView: NSImageView {
+        override var intrinsicContentSize: NSSize {
+            NSSize(
+                width: NSView.noIntrinsicMetric,
+                height: NSView.noIntrinsicMetric
+            )
+        }
+    }
+
     var onOpen: ((BarcodeResult) -> Void)?
 
-    private let imageView = NSImageView()
+    private let imageView = PreviewImageView()
     private let dimmingView = NSView()
     private var markerButtons: [BarcodeMarkerButton] = []
 
@@ -166,10 +175,10 @@ private final class BarcodePreviewView: NSView {
         positionMarkerButtons()
     }
 
-    func showImage(_ image: CGImage) {
+    func showImage(_ image: CGImage, displaySize: CGSize) {
         imageView.image = NSImage(
             cgImage: image,
-            size: NSSize(width: image.width, height: image.height)
+            size: displaySize
         )
         clearResults()
     }
@@ -292,8 +301,14 @@ final class ScreenshotBarcodePanelView: NSVisualEffectView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func showPreview(_ image: CGImage) {
-        previewView.showImage(image)
+    func showPreview(_ image: CGImage, displaySize: CGSize? = nil) {
+        previewView.showImage(
+            image,
+            displaySize: displaySize ?? CGSize(
+                width: image.width,
+                height: image.height
+            )
+        )
     }
 
     func showLoading() {
