@@ -6,8 +6,6 @@
 
 <p align="center">
   轻量、本地优先的 macOS 剪贴板与微信式截图工具。
-  <br>
-  目标是在 macOS 和 Windows 之间保持同一套复制、截图、OCR 与扫码操作逻辑。
 </p>
 
 <p align="center">
@@ -15,7 +13,6 @@
   <img alt="Swift" src="https://img.shields.io/badge/Swift-5-F05138?logo=swift&logoColor=white">
   <img alt="Universal" src="https://img.shields.io/badge/Universal-Apple%20Silicon%20%2B%20Intel-0A84FF">
   <img alt="Local Only" src="https://img.shields.io/badge/Data-Local%20Only-34C759">
-  <img alt="Windows Port" src="https://img.shields.io/badge/Windows-Port%20Spec%20Ready-0078D4?logo=windows">
 </p>
 
 <p align="center">
@@ -25,7 +22,6 @@
   <a href="#截图工作流">截图工作流</a> ·
   <a href="#本地验证">本地验证</a> ·
   <a href="#权限与隐私">权限与隐私</a> ·
-  <a href="#windows-接力开发">Windows 接力开发</a> ·
   <a href="#开发">开发</a>
 </p>
 
@@ -35,23 +31,21 @@
 
 Cliploom 是一个常驻菜单栏的小工具，解决两个高频问题：
 
-- 像 Windows `Win+V` 一样，在 macOS 上用 `Option+V` 打开剪贴板历史。
+- 在 macOS 上用 `Option+V` 快速打开剪贴板历史。
 - 像微信截图一样，用 `Option+A` 完成截图、标注、OCR、扫码、取色和保存。
 
-它不是云剪贴板，也不做账号同步。项目里的“跨设备同步”指的是同步操作习惯：
-当你从 Mac 切到 Windows 时，仍然使用相同的快捷键思路、分类规则、确认/取消逻辑和截图流程。
+它不是云剪贴板，也不做账号同步。所有剪贴板历史、截图、OCR 和扫码结果都保存在本机。
 
 ## 当前状态
 
 Cliploom 的 macOS 版本已经进入功能稳定期。后续默认以修复 Bug、整理文档、
-优化安装体验和 Windows 接力开发说明为主，不再主动扩展大功能。
+优化安装体验为主，不再主动扩展大功能。
 
 | 项目 | 状态 |
 | --- | --- |
 | macOS 应用 | 可日常使用，最新源码以 `main` 分支为准 |
-| 最新安装包 | Releases 中的 `v1.1.0` DMG |
+| 最新安装包 | Releases 中的 `v1.1.1` DMG |
 | 本地验证 | 见 [本地测试报告](docs/LOCAL_TEST_REPORT.md) |
-| Windows 版本 | 设计规范已整理，等待 WinUI 3 原生实现 |
 
 > 如果你在 GitHub 上刷新 Releases 页面，只会看到最新安装包版本；
 > 如果你刷新代码首页或 commit 列表，看到的是 `main` 分支最新源码。
@@ -65,7 +59,7 @@ Cliploom 的 macOS 版本已经进入功能稳定期。后续默认以修复 Bug
 当前稳定安装包：
 
 ```text
-Cliploom-1.1.0-macOS-universal-unnotarized.dmg
+Cliploom-1.1.1-macOS-universal-unnotarized.dmg
 ```
 
 成功标志：下载目录中出现 `.dmg` 文件。
@@ -191,33 +185,6 @@ xcodebuild \
 覆盖安装新版本时，请保持路径为 `/Applications/Cliploom.app`，不要同时保留多个副本。
 这样能最大程度减少 macOS 重新询问权限的概率。
 
-## Windows 接力开发
-
-Windows 版本不是把 Swift 代码翻译一遍，而是复用产品行为，再使用 Windows 原生技术实现。
-
-推荐方向：
-
-- C# / .NET 8
-- WinUI 3
-- SQLite
-- Windows Graphics Capture
-- Windows OCR 或合适的本地 OCR 方案
-- `RegisterHotKey` 管理全局快捷键
-
-必须保持一致的行为：
-
-| 操作 | macOS | Windows 目标 |
-| --- | --- | --- |
-| 打开剪贴板 | `Option+V` | `Alt+V` |
-| 启动截图 | `Option+A` | `Alt+A` |
-| 移动选择 | 方向键 | 方向键 |
-| 确认 / 粘贴 | `Enter` | `Enter` |
-| 取消 / 关闭 | 鼠标右键或 `Esc` | 鼠标右键或 `Esc` |
-| 内容分类 | 文本、链接、图片、文件、收藏 | 相同 |
-| 数据策略 | 本地存储、主动清理 | 相同 |
-
-接力开发请从 [WINDOWS_PORT.md](WINDOWS_PORT.md) 开始。
-
 ## 开发
 
 ### macOS 技术栈
@@ -301,5 +268,4 @@ Design/           图标与设计素材
 ## 维护状态
 
 - macOS 版本：功能稳定，后续以维护为主。
-- Windows 版本：已有接力设计规范，等待原生实现。
 - 最新变更：见 [CHANGELOG.md](CHANGELOG.md)。

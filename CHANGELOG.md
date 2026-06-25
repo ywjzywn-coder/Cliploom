@@ -82,8 +82,7 @@ All notable changes to Cliploom are documented here.
 ### Release
 
 - Promoted Cliploom to its first stable release after completing the clipboard,
-  screenshot, OCR, barcode, color inspection, and cross-platform design
-  workflows.
+  screenshot, OCR, barcode, and color inspection workflows.
 - Ships as an ad-hoc signed, unnotarized Universal DMG for Apple Silicon and
   Intel Macs.
 
@@ -119,8 +118,7 @@ All notable changes to Cliploom are documented here.
 
 ### Changed
 
-- README now focuses on product usage and consistent workflows across macOS and
-  the planned Windows port.
+- README now focuses on product usage and macOS installation workflows.
 - Preview builds use a stable application identifier and designated requirement
   to improve permission continuity during in-place updates.
 
@@ -143,7 +141,6 @@ All notable changes to Cliploom are documented here.
 - Local QR/barcode recognition with safe copy and HTTP/HTTPS open actions.
 - Chinese and English localization.
 - Local install, Developer ID signing, notarization, and packaging scripts.
-- Windows port handoff document for follow-up implementation.
 
 ### Privacy
 
