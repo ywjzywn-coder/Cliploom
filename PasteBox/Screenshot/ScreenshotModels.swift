@@ -83,12 +83,15 @@ struct ScreenshotCoordinateMapper {
         let standardized = selection.standardized.intersection(
             CGRect(origin: .zero, size: viewSize)
         )
+        let pixelBounds = CGRect(origin: .zero, size: pixelSize)
         return CGRect(
             x: standardized.minX * scaleX,
             y: (viewSize.height - standardized.maxY) * scaleY,
             width: standardized.width * scaleX,
             height: standardized.height * scaleY
-        ).integral
+        )
+        .integral
+        .intersection(pixelBounds)
     }
 
     static func localWindowFrame(
@@ -239,6 +242,19 @@ final class ScreenshotPixelSampler {
 }
 
 enum ScreenshotToolbarGeometry {
+    static func centeredSquare(in container: CGRect) -> CGRect {
+        guard container.width > 0, container.height > 0 else {
+            return CGRect(origin: container.origin, size: .zero)
+        }
+        let side = min(container.width, container.height)
+        return CGRect(
+            x: container.midX - side / 2,
+            y: container.midY - side / 2,
+            width: side,
+            height: side
+        )
+    }
+
     static func aspectFitRect(
         contentSize: CGSize,
         in container: CGRect

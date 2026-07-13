@@ -43,6 +43,24 @@ final class ScreenshotCoordinateMapperTests: XCTestCase {
             CGPoint(x: 199, y: 99)
         )
     }
+
+    func testCropRectAtScaledDisplayEdgeStaysInsidePixelBounds() {
+        let mapper = ScreenshotCoordinateMapper(
+            viewSize: CGSize(width: 1728, height: 1117),
+            pixelSize: CGSize(width: 3456, height: 2234)
+        )
+
+        let cropRect = mapper.pixelCropRect(
+            for: CGRect(x: 1624.3, y: 1042.6, width: 103.7, height: 74.4)
+        )
+
+        XCTAssertGreaterThanOrEqual(cropRect.minX, 0)
+        XCTAssertGreaterThanOrEqual(cropRect.minY, 0)
+        XCTAssertLessThanOrEqual(cropRect.maxX, 3456)
+        XCTAssertLessThanOrEqual(cropRect.maxY, 2234)
+        XCTAssertGreaterThan(cropRect.width, 0)
+        XCTAssertGreaterThan(cropRect.height, 0)
+    }
 }
 
 final class ScreenshotCaptureGeometryTests: XCTestCase {
@@ -309,6 +327,28 @@ final class ScreenshotPixelSamplerTests: XCTestCase {
 }
 
 final class ScreenshotToolbarGeometryTests: XCTestCase {
+    func testCenteredSquareDoesNotStretchInWideContainer() {
+        let result = ScreenshotToolbarGeometry.centeredSquare(
+            in: CGRect(x: 10, y: 20, width: 40, height: 18)
+        )
+
+        XCTAssertEqual(result.width, 18, accuracy: 0.001)
+        XCTAssertEqual(result.height, 18, accuracy: 0.001)
+        XCTAssertEqual(result.midX, 30, accuracy: 0.001)
+        XCTAssertEqual(result.midY, 29, accuracy: 0.001)
+    }
+
+    func testCenteredSquareDoesNotStretchInTallContainer() {
+        let result = ScreenshotToolbarGeometry.centeredSquare(
+            in: CGRect(x: 10, y: 20, width: 18, height: 40)
+        )
+
+        XCTAssertEqual(result.width, 18, accuracy: 0.001)
+        XCTAssertEqual(result.height, 18, accuracy: 0.001)
+        XCTAssertEqual(result.midX, 19, accuracy: 0.001)
+        XCTAssertEqual(result.midY, 40, accuracy: 0.001)
+    }
+
     func testAspectFitKeepsWideSymbolProportions() {
         let result = ScreenshotToolbarGeometry.aspectFitRect(
             contentSize: CGSize(width: 19, height: 14),
@@ -477,7 +517,10 @@ final class ScreenshotOverlayInputTests: XCTestCase {
 
         var finishCount = 0
         var cancellationCount = 0
-        view.onFinish = { finishCount += 1 }
+        view.onFinish = {
+            finishCount += 1
+            return true
+        }
         view.onCancel = { cancellationCount += 1 }
 
         let event = try XCTUnwrap(
@@ -514,7 +557,10 @@ final class ScreenshotOverlayInputTests: XCTestCase {
         view.session = session
 
         var finishCount = 0
-        view.onFinish = { finishCount += 1 }
+        view.onFinish = {
+            finishCount += 1
+            return true
+        }
 
         let event = try XCTUnwrap(
             NSEvent.mouseEvent(
@@ -533,6 +579,86 @@ final class ScreenshotOverlayInputTests: XCTestCase {
         view.mouseDown(with: event)
 
         XCTAssertEqual(finishCount, 1)
+    }
+
+    func testToolbarBlankNearDoneButtonStillFinishes() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let session = ScreenshotSession(
+            image: try makeSolidImage(color: .systemBlue),
+            screen: screen,
+            windows: []
+        )
+        session.selection = CGRect(x: 100, y: 250, width: 240, height: 160)
+        let view = ScreenshotOverlayView(
+            frame: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        view.session = session
+
+        var finishCount = 0
+        var cancellationCount = 0
+        view.onFinish = {
+            finishCount += 1
+            return true
+        }
+        view.onCancel = { cancellationCount += 1 }
+
+        let event = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: CGPoint(x: 433, y: 216),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+
+        view.mouseDown(with: event)
+
+        XCTAssertEqual(finishCount, 1)
+        XCTAssertEqual(cancellationCount, 0)
+    }
+
+    func testDoneButtonCanRetryAfterFailedFinish() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let session = ScreenshotSession(
+            image: try makeSolidImage(color: .systemBlue),
+            screen: screen,
+            windows: []
+        )
+        session.selection = CGRect(x: 100, y: 250, width: 240, height: 160)
+        let view = ScreenshotOverlayView(
+            frame: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        view.session = session
+
+        var finishCount = 0
+        view.onFinish = {
+            finishCount += 1
+            return finishCount > 1
+        }
+
+        let event = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: CGPoint(x: 430, y: 216),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+
+        view.mouseDown(with: event)
+        view.mouseDown(with: event)
+
+        XCTAssertEqual(finishCount, 2)
     }
 
     func testColorInspectorCopiesHoveredHexValue() throws {

@@ -19,12 +19,24 @@ All notable changes to Cliploom are documented here.
 - Local development installs use the stable local signing path from
   `Scripts/install-local.sh`, helping permission prompts stay tied to the same
   installed app identity during local updates.
+- Local development installs now preserve the `/Applications/Cliploom.app`
+  bundle container while replacing its contents, further reducing TCC permission
+  churn during local updates.
+- README and local validation notes now reflect the 2026-07-13 maintenance
+  baseline and the difference between source updates and packaged Releases.
 
 ### Fixed
 
 - Screenshot Done now rebuilds toolbar hit regions at mouse-down time, so
   clicking the green checkmark still completes and copies even when the toolbar
   was just shown and its previous hit cache is stale.
+- Screenshot Done now guards the finish path as a single commit operation,
+  allowing retry after failure while preventing repeated events from leaving the
+  overlay in a half-finished state.
+- Scaled Retina edge selections now clamp pixel crop rectangles to the captured
+  image bounds, preventing intermittent render failures near display edges.
+- Cliploom no longer triggers the macOS Accessibility permission prompt on
+  startup; prompts are shown only when the user explicitly requests permission.
 - Clipboard image rows use safer thumbnail sizing so very tall or narrow images
   do not stretch the history list layout.
 

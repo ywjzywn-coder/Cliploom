@@ -44,7 +44,7 @@ final class PermissionManager: ObservableObject {
     }
 
     func openAccessibilitySettings() {
-        requestAccessibilityPermission()
+        refresh()
         guard let url = URL(
             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
         ) else { return }

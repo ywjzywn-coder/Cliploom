@@ -119,13 +119,14 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
     func screenshotOverlay(
         _ controller: ScreenshotOverlayController,
         didFinishWith data: Data
-    ) {
+    ) -> Bool {
         guard commitImage(data) else {
             showStatus(String(localized: "screenshot.copy.failed"))
-            return
+            return false
         }
         finishSession()
         showStatus(String(localized: "screenshot.copied"))
+        return true
     }
 
     func screenshotOverlayDidFailToRender(_ controller: ScreenshotOverlayController) {

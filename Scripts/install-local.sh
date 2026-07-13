@@ -105,9 +105,13 @@ codesign --verify --deep --strict "$APP_PATH"
 
 pkill -x Cliploom 2>/dev/null || true
 pkill -x PasteBox 2>/dev/null || true
-rm -rf "$DESTINATION"
 rm -rf "$LEGACY_DESTINATION"
-ditto "$APP_PATH" "$DESTINATION"
+if [[ -d "$DESTINATION" ]]; then
+  find "$DESTINATION" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  ditto "$APP_PATH/" "$DESTINATION/"
+else
+  ditto "$APP_PATH" "$DESTINATION"
+fi
 
 /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister \
   -f "$DESTINATION"

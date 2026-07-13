@@ -44,7 +44,8 @@ Cliploom 的 macOS 版本已经进入功能稳定期。后续默认以修复 Bug
 | 项目 | 状态 |
 | --- | --- |
 | macOS 应用 | 可日常使用，最新源码以 `main` 分支为准 |
-| 最新安装包 | Releases 中的 `v1.1.1` DMG |
+| 最新源码 | 已包含 2026-07-13 的截图完成、缩放裁剪和权限弹窗修复 |
+| 最新安装包 | Releases 中的 `v1.1.1` DMG，可能落后于 `main` 最新源码 |
 | 本地验证 | 见 [本地测试报告](docs/LOCAL_TEST_REPORT.md) |
 
 > 如果你在 GitHub 上刷新 Releases 页面，只会看到最新安装包版本；
@@ -142,14 +143,18 @@ Cliploom-1.1.1-macOS-universal-unnotarized.dmg
 
 ## 本地验证
 
-最近一次本地验证时间：2026-06-21。
+最近一次本地验证时间：2026-07-13。
 
 已验证内容：
 
 - 截图工具栏完成按钮会在命中区域尚未绘制缓存时正确触发。
+- 工具栏空白边缘点击会归到最近的可用按钮，不再静默吞掉完成动作。
+- `完成并复制` 有一次性提交保护；失败后可以重试，成功后关闭截图层。
+- 缩放显示器、Retina 和选区靠近屏幕边缘时，裁剪像素不会越界。
 - `Option+A` 截图完成后可以复制 PNG 到系统剪贴板。
 - 剪贴板历史保留时长和条数支持设置项，默认仍为 30 天 / 500 条。
-- 本地安装脚本可更新 `/Applications/Cliploom.app` 并重新启动应用。
+- 本地安装脚本可稳定更新 `/Applications/Cliploom.app` 并重新启动应用。
+- 应用启动不会主动弹出辅助功能授权请求；只有用户点击“请求权限”才触发系统弹窗。
 - 当前安装应用签名校验通过。
 
 测试命令：
@@ -174,6 +179,13 @@ xcodebuild \
 | --- | --- | --- |
 | 辅助功能 | 恢复原应用并模拟 `Command+V` | 只复制，需要手动粘贴 |
 | 屏幕与系统音频录制 | 截图和窗口识别 | 无法启动截图 |
+
+权限提示策略：
+
+- Cliploom 启动时只静默刷新授权状态，不会主动弹辅助功能授权窗口。
+- 设置页和首次引导中的“请求权限”按钮才会触发系统授权弹窗。
+- 本地开发安装使用固定证书 `Cliploom Local Development`，并尽量保留 `/Applications/Cliploom.app` 容器，减少覆盖安装后 macOS 重新询问权限的概率。
+- 如果系统设置里显示已授权但应用仍检测为未授权，通常是旧签名记录残留。移除旧的 Cliploom/PasteBox 权限项后重新添加一次即可。
 
 数据策略：
 
@@ -227,6 +239,14 @@ xcodebuild \
 ```bash
 ./Scripts/install-local.sh
 ```
+
+脚本会：
+
+- 使用或创建稳定的本地代码签名证书 `Cliploom Local Development`。
+- 构建 Debug 版本。
+- 保留 `/Applications/Cliploom.app` 这个容器并替换内部内容。
+- 清理旧的 `/Applications/PasteBox.app`。
+- 重新注册并启动 Cliploom。
 
 成功标志：`/Applications/Cliploom.app` 被更新并重新启动。
 

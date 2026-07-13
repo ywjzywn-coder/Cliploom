@@ -64,12 +64,6 @@ final class AppController: ObservableObject {
         screenshotCoordinator?.prewarm()
         installScreenshotWarmStateObservers()
 
-        if !permissionManager.isAccessibilityGranted {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                self.permissionManager.requestAccessibilityPermission()
-            }
-        }
-
         if !UserDefaults.standard.bool(forKey: "onboarding.completed") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 self.showSettings()

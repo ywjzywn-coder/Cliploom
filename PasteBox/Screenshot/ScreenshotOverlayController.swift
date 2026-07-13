@@ -12,7 +12,7 @@ protocol ScreenshotOverlayControllerDelegate: AnyObject {
     func screenshotOverlay(
         _ controller: ScreenshotOverlayController,
         didFinishWith data: Data
-    )
+    ) -> Bool
     func screenshotOverlayDidFailToRender(_ controller: ScreenshotOverlayController)
     func screenshotOverlay(
         _ controller: ScreenshotOverlayController,
@@ -95,12 +95,12 @@ final class ScreenshotOverlayController: NSWindowController {
             self?.cancelSession()
         }
         overlayView.onFinish = { [weak self] in
-            guard let self else { return }
+            guard let self else { return false }
             guard let data = self.renderPNG() else {
                 self.delegate?.screenshotOverlayDidFailToRender(self)
-                return
+                return false
             }
-            self.delegate?.screenshotOverlay(self, didFinishWith: data)
+            return self.delegate?.screenshotOverlay(self, didFinishWith: data) ?? false
         }
         overlayView.onSave = { [weak self] in
             guard let self else { return }
@@ -497,7 +497,7 @@ final class ScreenshotOverlayView: NSView {
         }
     }
     var onCancel: (() -> Void)?
-    var onFinish: (() -> Void)?
+    var onFinish: (() -> Bool)?
     var onSave: (() -> Void)?
     var onScan: (() -> Void)?
     var onRecognizeText: (() -> Void)?
@@ -519,6 +519,7 @@ final class ScreenshotOverlayView: NSView {
     private var trackingAreaReference: NSTrackingArea?
     private var copiedColorValue: String?
     private var colorCopyResetWorkItem: DispatchWorkItem?
+    private var isFinishing = false
     private lazy var pixelSampler = ScreenshotPixelSampler(image: session.image)
 
     override var acceptsFirstResponder: Bool { true }
@@ -605,7 +606,7 @@ final class ScreenshotOverlayView: NSView {
             return
         }
 
-        updateHoveredToolbarTitle(toolbarItem(at: point)?.title)
+        updateHoveredToolbarTitle(toolbarItem(at: point, includingNearestInToolbar: true)?.title)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -621,11 +622,11 @@ final class ScreenshotOverlayView: NSView {
 
         if event.clickCount == 2,
            session.selection?.contains(point) == true {
-            onFinish?()
+            finishScreenshot()
             return
         }
 
-        if let item = toolbarItem(at: point) {
+        if let item = toolbarItem(at: point, includingNearestInToolbar: true) {
             if item.isEnabled {
                 performToolbarAction(item.action)
             }
@@ -739,7 +740,7 @@ final class ScreenshotOverlayView: NSView {
         case 53:
             cancelScreenshot()
         case 36, 76:
-            if session.selection != nil { onFinish?() }
+            finishScreenshot()
         case 51:
             session.undo()
             needsDisplay = true
@@ -780,7 +781,7 @@ final class ScreenshotOverlayView: NSView {
         case .cancel:
             cancelScreenshot()
         case .done:
-            onFinish?()
+            finishScreenshot()
         case .recognizeText:
             onRecognizeText?()
         case .translate:
@@ -789,6 +790,15 @@ final class ScreenshotOverlayView: NSView {
             onScan?()
         }
         needsDisplay = true
+    }
+
+    private func finishScreenshot() {
+        guard !isFinishing, session.selection != nil else { return }
+        isFinishing = true
+        if onFinish?() != true {
+            isFinishing = false
+            needsDisplay = true
+        }
     }
 
     private func makeAnnotation(from start: CGPoint, to end: CGPoint) -> ScreenshotAnnotation? {
@@ -1370,14 +1380,39 @@ final class ScreenshotOverlayView: NSView {
         return CGRect(x: x, y: y, width: totalWidth, height: height)
     }
 
-    private func toolbarItem(at point: CGPoint) -> ToolbarHitRegion? {
-        guard let index = ScreenshotToolbarGeometry.hitIndex(
+    private func toolbarItem(
+        at point: CGPoint,
+        includingNearestInToolbar: Bool = false
+    ) -> ToolbarHitRegion? {
+        if let index = ScreenshotToolbarGeometry.hitIndex(
             at: point,
             in: toolbarHitRegions.map(\.rect)
-        ) else {
-            return nil
+        ) {
+            return toolbarHitRegions[index]
         }
-        return toolbarHitRegions[index]
+        guard includingNearestInToolbar,
+              toolbarFrame?.contains(point) == true
+        else { return nil }
+        return nearestEnabledToolbarItem(to: point)
+    }
+
+    private func nearestEnabledToolbarItem(to point: CGPoint) -> ToolbarHitRegion? {
+        toolbarHitRegions
+            .filter(\.isEnabled)
+            .min {
+                distanceSquared(from: point, to: center(of: $0.rect))
+                    < distanceSquared(from: point, to: center(of: $1.rect))
+            }
+    }
+
+    private func center(of rect: CGRect) -> CGPoint {
+        CGPoint(x: rect.midX, y: rect.midY)
+    }
+
+    private func distanceSquared(from first: CGPoint, to second: CGPoint) -> CGFloat {
+        let dx = first.x - second.x
+        let dy = first.y - second.y
+        return dx * dx + dy * dy
     }
 
     private func updateHoveredToolbarTitle(_ title: String?) {
@@ -1467,33 +1502,53 @@ final class ScreenshotOverlayView: NSView {
             enabled: enabled,
             tint: tint
         )
+        guard let symbolImage = toolbarSymbolImage(
+            named: symbol,
+            with: enabled ? tint : tint.withAlphaComponent(0.28)
+        ) else { return }
+        let pop = hovered && enabled ? sin(hoverAnimationProgress * .pi) : 0
+        let iconInset = 7 - pop * 1.6
+        let iconContainer = rect.insetBy(dx: iconInset, dy: iconInset)
+        let iconRect = ScreenshotToolbarGeometry.centeredSquare(in: iconContainer).integral
+        symbolImage.draw(
+            in: iconRect,
+            from: CGRect(origin: .zero, size: symbolImage.size),
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: false,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
+    }
+
+    private func toolbarSymbolImage(named symbol: String, with tint: NSColor) -> NSImage? {
         guard let image = NSImage(
             systemSymbolName: symbol,
             accessibilityDescription: nil
-        ) else { return }
+        ) else { return nil }
         let configuration = NSImage.SymbolConfiguration(
             pointSize: 15,
             weight: .medium
         )
         let configuredImage = image.withSymbolConfiguration(configuration) ?? image
-        let tintedImage = configuredImage.tinted(
-            with: enabled ? tint : tint.withAlphaComponent(0.28)
-        )
-        let pop = hovered && enabled ? sin(hoverAnimationProgress * .pi) : 0
-        let iconInset = 7 - pop * 1.6
-        let iconContainer = rect.insetBy(dx: iconInset, dy: iconInset)
-        let iconRect = ScreenshotToolbarGeometry.aspectFitRect(
-            contentSize: tintedImage.size,
-            in: iconContainer
-        ).integral
-        tintedImage.draw(
-            in: iconRect,
-            from: .zero,
-            operation: .sourceOver,
-            fraction: 1,
-            respectFlipped: true,
-            hints: [.interpolation: NSImageInterpolation.high]
-        )
+        let symbolCanvas = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            let iconRect = ScreenshotToolbarGeometry.aspectFitRect(
+                contentSize: configuredImage.size,
+                in: rect
+            )
+            configuredImage
+                .tinted(with: tint)
+                .draw(
+                    in: iconRect,
+                    from: .zero,
+                    operation: .sourceOver,
+                    fraction: 1,
+                    respectFlipped: false,
+                    hints: [.interpolation: NSImageInterpolation.high]
+                )
+            return true
+        }
+        symbolCanvas.cacheMode = .never
+        return symbolCanvas
     }
 
     private func drawToolbarTooltip(
