@@ -228,8 +228,10 @@ struct ClipboardPanelView: View {
                             )
                                 .id(item.id)
                                 .contentShape(Rectangle())
-                                .onTapGesture(count: 2) { controller.paste(item) }
-                                .onTapGesture { selectedID = item.id }
+                                .onTapGesture {
+                                    selectedID = item.id
+                                    controller.paste(item)
+                                }
                                 .contextMenu { contextMenu(for: item) }
                         }
                     }

@@ -14,6 +14,12 @@ All notable changes to Cliploom are documented here.
 
 ### Changed
 
+- Clipboard items now paste on a single click instead of requiring a
+  double-click. Right-click still opens the context menu with copy, favorite,
+  delete, and other options.
+- Paste activation now starts before the pasteboard write, allowing the target
+  application to come forward while data is being prepared, reducing perceived
+  paste latency.
 - README now marks the macOS app as feature-stable and clarifies the difference
   between latest source on `main` and the latest packaged Release DMG.
 - Local development installs use the stable local signing path from
@@ -27,6 +33,12 @@ All notable changes to Cliploom are documented here.
 
 ### Fixed
 
+- Screenshot toolbar hit regions are no longer rebuilt during display draws,
+  eliminating a timing issue where the Done button could occasionally fail to
+  respond. Hit regions are now rebuilt only on mouse-down and mouse-up, keeping
+  them stable and consistent with the visible toolbar at all times.
+- Paste delay reduced from 180ms to 100ms by overlapping application activation
+  with pasteboard writes, making clipboard paste feel more responsive.
 - Screenshot Done now rebuilds toolbar hit regions at mouse-down time, so
   clicking the green checkmark still completes and copies even when the toolbar
   was just shown and its previous hit cache is stale.

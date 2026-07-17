@@ -721,6 +721,9 @@ final class ScreenshotOverlayView: NSView {
         if session.selection?.contains(point) == false, session.selection != nil {
             session.selection = clamp(session.selection!, to: bounds)
         }
+        if let selection = session.selection {
+            rebuildToolbarHitRegions(near: selection)
+        }
         needsDisplay = true
     }
 
@@ -1075,7 +1078,6 @@ final class ScreenshotOverlayView: NSView {
     }
 
     private func drawToolbar(near selection: CGRect) {
-        rebuildToolbarHitRegions(near: selection)
         let colors: [NSColor] = [.systemRed, .systemYellow, .systemGreen, .systemBlue, .black, .white]
         let toolItems: [(ScreenshotTool, String)] = ScreenshotTool.allCases.map {
             ($0, $0.symbolName)
@@ -1090,11 +1092,12 @@ final class ScreenshotOverlayView: NSView {
         let actionWidth: CGFloat = 7 * (buttonSize + spacing)
         let totalWidth = 18 + toolWidth + colorWidth + lineWidthWidth + actionWidth
         let height: CGFloat = 48
-        let toolbarRect = toolbarFrame ?? toolbarRect(
+        let toolbarRect = toolbarRect(
             near: selection,
             totalWidth: totalWidth,
             height: height
         )
+        toolbarFrame = toolbarRect
 
         NSColor.windowBackgroundColor.withAlphaComponent(0.96).setFill()
         NSBezierPath(roundedRect: toolbarRect, xRadius: 11, yRadius: 11).fill()

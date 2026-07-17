@@ -33,17 +33,20 @@ final class PasteCoordinator {
     }
 
     func paste(_ item: ClipboardItem, into targetApplication: NSRunningApplication?) -> PasteResult {
-        guard write(item) else {
-            return item.kind == .file && !item.filesAreAvailable ? .unavailableFile : .failed
-        }
-
         permissionManager.refresh()
         guard permissionManager.isAccessibilityGranted else {
+            guard write(item) else {
+                return item.kind == .file && !item.filesAreAvailable ? .unavailableFile : .failed
+            }
             return .copiedOnly
         }
 
         targetApplication?.activate(options: [.activateAllWindows])
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+        guard write(item) else {
+            return item.kind == .file && !item.filesAreAvailable ? .unavailableFile : .failed
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             let source = CGEventSource(stateID: .hidSystemState)
             let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true)
             let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false)
