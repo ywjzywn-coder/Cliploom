@@ -275,14 +275,14 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
                 }
             }
             do {
-                let result = try await TextRecognizer.recognize(cgImage: image)
+                let lines = try await TextRecognizer.recognizeLines(cgImage: image)
                 guard !Task.isCancelled,
                       translationRecognitionGeneration == generation,
                       overlayController === controller
                 else {
                     return
                 }
-                controller.showTranslationSource(result.text)
+                controller.showTranslationLines(lines)
             } catch {
                 guard !Task.isCancelled,
                       translationRecognitionGeneration == generation,
@@ -290,7 +290,7 @@ final class ScreenshotCoordinator: ScreenshotOverlayControllerDelegate {
                 else {
                     return
                 }
-                controller.showTranslationMessage(
+                controller.showTranslationError(
                     String(localized: "screenshot.translate.ocrFailed")
                 )
             }

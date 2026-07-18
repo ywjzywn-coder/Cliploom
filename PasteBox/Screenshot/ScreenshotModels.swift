@@ -151,7 +151,7 @@ enum ScreenshotTranslationDirection {
         case .simplifiedChinese?, .traditionalChinese?:
             return "en"
         default:
-            return "zh-Hans"
+            return "zh-CN"
         }
     }
 }

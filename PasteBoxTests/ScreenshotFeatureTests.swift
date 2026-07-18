@@ -119,7 +119,7 @@ final class ScreenshotTranslationDirectionTests: XCTestCase {
                 for: "Hello world",
                 dominantLanguage: .english
             ),
-            "zh-Hans"
+            "zh-CN"
         )
     }
 }

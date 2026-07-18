@@ -9,6 +9,11 @@ struct TextRecognitionResult {
     let imageAnalysis: ImageAnalysis?
 }
 
+struct RecognizedTextLine {
+    let text: String
+    let boundingBox: CGRect
+}
+
 enum TextRecognizer {
     private static let warmupTask = Task.detached(priority: .utility) {
         let colorSpace = CGColorSpaceCreateDeviceGray()
@@ -77,6 +82,13 @@ enum TextRecognizer {
         }.value
     }
 
+    static func recognizeLines(cgImage: CGImage) async throws -> [RecognizedTextLine] {
+        await warmupTask.value
+        return try await Task.detached(priority: .userInitiated) {
+            try performLineRecognition(on: cgImage)
+        }.value
+    }
+
     private static func performRecognition(on cgImage: CGImage) throws -> String {
         let request = VNRecognizeTextRequest()
         request.revision = VNRecognizeTextRequestRevision3
@@ -97,5 +109,37 @@ enum TextRecognizer {
             .compactMap { $0.topCandidates(1).first?.string }
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func performLineRecognition(
+        on cgImage: CGImage
+    ) throws -> [RecognizedTextLine] {
+        let request = VNRecognizeTextRequest()
+        request.revision = VNRecognizeTextRequestRevision3
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.automaticallyDetectsLanguage = true
+
+        let handler = VNImageRequestHandler(cgImage: cgImage)
+        try handler.perform([request])
+
+        return (request.results ?? [])
+            .sorted {
+                if abs($0.boundingBox.maxY - $1.boundingBox.maxY) > 0.02 {
+                    return $0.boundingBox.maxY > $1.boundingBox.maxY
+                }
+                return $0.boundingBox.minX < $1.boundingBox.minX
+            }
+            .compactMap { observation in
+                guard let candidate = observation.topCandidates(1).first,
+                      !candidate.string.trimmingCharacters(
+                          in: .whitespacesAndNewlines
+                      ).isEmpty
+                else { return nil }
+                return RecognizedTextLine(
+                    text: candidate.string,
+                    boundingBox: observation.boundingBox
+                )
+            }
     }
 }

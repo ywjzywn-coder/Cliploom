@@ -55,10 +55,10 @@ final class ScreenshotOverlayController: NSWindowController {
     private let overlayView: ScreenshotOverlayView
     private var resultPanel: NSPanel?
     private var ocrResultView: ScreenshotOCRPanelView?
-    private var translationResultView: ScreenshotTranslationPanelView?
     private var barcodeResultView: ScreenshotBarcodePanelView?
     private var keyMonitor: Any?
     private var isCancelling = false
+    private let translationManager = TranslationManager()
 
     init(session: ScreenshotSession) {
         self.session = session
@@ -146,8 +146,9 @@ final class ScreenshotOverlayController: NSWindowController {
         resultPanel?.orderOut(nil)
         resultPanel = nil
         ocrResultView = nil
-        translationResultView = nil
         barcodeResultView = nil
+        overlayView.translationOverlay = nil
+        overlayView.translationToolbarFrame = nil
     }
 
     func suspendForSystemPanel() {
@@ -176,16 +177,15 @@ final class ScreenshotOverlayController: NSWindowController {
     }
 
     func showTranslationSource(_ text: String) {
-        let panel = ensureTranslationResultPanel()
         if text.isEmpty {
-            panel.showMessage(String(localized: "screenshot.translate.empty"))
-        } else {
-            panel.translate(text)
+            showTranslationError(
+                String(localized: "screenshot.translate.empty")
+            )
         }
     }
 
     func showTranslationMessage(_ message: String) {
-        ensureTranslationResultPanel().showMessage(message)
+        showTranslationError(message)
     }
 
     func showBarcodeResults(_ results: [BarcodeResult]) {
@@ -213,10 +213,66 @@ final class ScreenshotOverlayController: NSWindowController {
 
     private func requestTranslation() {
         guard let image = croppedImage() else { return }
-        let panel = ensureTranslationResultPanel()
-        panel.showPreview(image, displaySize: selectedDisplaySize(for: image))
-        panel.showRecognizing()
+        guard let selection = session.selection?.standardized else { return }
+        let overlay = TranslationOverlayState()
+        overlayView.translationOverlay = overlay
+        overlayView.onCopyTranslation = { [weak self] text in
+            guard let self else { return }
+            self.delegate?.screenshotOverlay(
+                self,
+                didRequestCopyTranslation: text
+            )
+            self.overlayView.translationOverlay = nil
+            self.overlayView.translationToolbarFrame = nil
+            self.overlayView.needsDisplay = true
+        }
+        overlayView.needsDisplay = true
+        startInlineTranslation(image: image, selection: selection, overlay: overlay)
+    }
+
+    private func startInlineTranslation(
+        image: CGImage,
+        selection: CGRect,
+        overlay: TranslationOverlayState
+    ) {
         delegate?.screenshotOverlay(self, didRequestTranslate: image)
+    }
+
+    func showTranslationLines(_ lines: [RecognizedTextLine]) {
+        guard let selection = session.selection?.standardized else { return }
+        let overlay = overlayView.translationOverlay ?? TranslationOverlayState()
+        if lines.isEmpty {
+            overlay.phase = .error(
+                String(localized: "screenshot.translate.empty")
+            )
+        } else {
+            overlay.setRecognizedLines(lines, in: selection)
+        }
+        overlayView.translationOverlay = overlay
+        overlayView.needsDisplay = true
+
+        if !lines.isEmpty {
+            let texts = lines.map(\.text)
+            let targetIdentifier = ScreenshotTranslationDirection
+                .targetIdentifier(for: texts.joined(separator: "\n"))
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let translations = await self.translationManager.translate(
+                    texts: texts,
+                    targetIdentifier: targetIdentifier
+                )
+                guard let current = self.overlayView.translationOverlay
+                else { return }
+                current.setTranslations(translations)
+                self.overlayView.needsDisplay = true
+            }
+        }
+    }
+
+    func showTranslationError(_ message: String) {
+        guard let overlay = overlayView.translationOverlay else { return }
+        overlay.phase = .error(message)
+        overlayView.needsDisplay = true
     }
 
     private func requestBarcodeScan() {
@@ -301,40 +357,6 @@ final class ScreenshotOverlayController: NSWindowController {
         return view
     }
 
-    private func ensureTranslationResultPanel() -> ScreenshotTranslationPanelView {
-        if let translationResultView {
-            return translationResultView
-        }
-        dismissResultPanel()
-        let maximumSize = session.screen.visibleFrame
-            .insetBy(dx: 24, dy: 24)
-            .size
-        let preferredSize = OCRPanelGeometry.preferredSize(
-            selection: session.selection?.standardized.size ?? .zero,
-            maximum: maximumSize
-        )
-        let view = ScreenshotTranslationPanelView(
-            frame: CGRect(origin: .zero, size: preferredSize)
-        )
-        view.onRetry = { [weak self] in
-            self?.requestTranslation()
-        }
-        view.onCopy = { [weak self] text in
-            guard let self else { return }
-            self.delegate?.screenshotOverlay(
-                self,
-                didRequestCopyTranslation: text
-            )
-        }
-        view.onClose = { [weak self] in
-            guard let self else { return }
-            self.delegate?.screenshotOverlayDidCancel(self)
-        }
-        presentResultPanel(contentView: view)
-        translationResultView = view
-        return view
-    }
-
     private func presentResultPanel(contentView: NSView) {
         window?.orderOut(nil)
         let size = contentView.frame.size
@@ -405,7 +427,6 @@ final class ScreenshotOverlayController: NSWindowController {
         resultPanel?.orderOut(nil)
         resultPanel = nil
         ocrResultView = nil
-        translationResultView = nil
         barcodeResultView = nil
     }
 
@@ -484,6 +505,58 @@ private struct ToolbarHitRegion {
     let isEnabled: Bool
 }
 
+struct TranslationOverlayLine {
+    var originalText: String
+    var translatedText: String
+    let viewRect: CGRect
+    var isTranslated: Bool { !translatedText.isEmpty }
+}
+
+@MainActor
+final class TranslationOverlayState {
+    enum Phase {
+        case recognizing
+        case translating
+        case done
+        case error(String)
+    }
+
+    var phase: Phase = .recognizing
+    var lines: [TranslationOverlayLine] = []
+    var fullTranslatedText: String { lines.map(\.translatedText).filter { !$0.isEmpty }.joined(separator: "\n") }
+
+    func setRecognizedLines(_ recognized: [RecognizedTextLine], in selection: CGRect) {
+        lines = recognized.map { line in
+            let rect = CGRect(
+                x: selection.minX + line.boundingBox.minX * selection.width,
+                y: selection.minY + line.boundingBox.minY * selection.height,
+                width: line.boundingBox.width * selection.width,
+                height: line.boundingBox.height * selection.height
+            )
+            return TranslationOverlayLine(
+                originalText: line.text,
+                translatedText: "",
+                viewRect: rect
+            )
+        }
+        phase = .translating
+    }
+
+    func setTranslations(_ translations: [String]) {
+        for index in lines.indices {
+            if index < translations.count {
+                lines[index].translatedText = translations[index]
+            }
+        }
+        phase = .done
+    }
+
+    func clear() {
+        lines = []
+        phase = .recognizing
+    }
+}
+
 @MainActor
 final class ScreenshotOverlayView: NSView {
     var session: ScreenshotSession! {
@@ -521,6 +594,10 @@ final class ScreenshotOverlayView: NSView {
     private var colorCopyResetWorkItem: DispatchWorkItem?
     private var isFinishing = false
     private lazy var pixelSampler = ScreenshotPixelSampler(image: session.image)
+
+    var translationOverlay: TranslationOverlayState?
+    var onCopyTranslation: ((String) -> Void)?
+    var translationToolbarFrame: CGRect?
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { false }
@@ -565,6 +642,9 @@ final class ScreenshotOverlayView: NSView {
         drawSizeLabel(for: selection)
         drawToolbar(near: selection)
         drawColorInspectorIfNeeded()
+        if translationOverlay != nil {
+            drawTranslationOverlay(near: selection)
+        }
     }
 
     override func updateTrackingAreas() {
@@ -615,6 +695,30 @@ final class ScreenshotOverlayView: NSView {
         pointerLocation = nil
         isColorInspectorSuppressed = true
         needsDisplay = true
+
+        if translationOverlay != nil,
+           let ttb = translationToolbarFrame,
+           ttb.contains(point) {
+            let copyRect = CGRect(
+                x: ttb.minX + 6, y: ttb.minY + 5,
+                width: 30, height: 30
+            )
+            let closeRect = CGRect(
+                x: ttb.minX + 6 + 30 + 4, y: ttb.minY + 5,
+                width: 30, height: 30
+            )
+            if copyRect.contains(point) {
+                let text = translationOverlay?.fullTranslatedText ?? ""
+                if !text.isEmpty {
+                    onCopyTranslation?(text)
+                }
+            } else if closeRect.contains(point) {
+                translationOverlay = nil
+                translationToolbarFrame = nil
+                needsDisplay = true
+            }
+            return
+        }
 
         if let selection = session.selection {
             rebuildToolbarHitRegions(near: selection)
@@ -969,6 +1073,224 @@ final class ScreenshotOverlayView: NSView {
             at: CGPoint(x: labelRect.minX + 7, y: labelRect.minY + 4),
             withAttributes: attributes
         )
+    }
+
+    private func drawTranslationOverlay(near selection: CGRect) {
+        guard let state = translationOverlay else { return }
+
+        switch state.phase {
+        case .recognizing:
+            translationToolbarFrame = nil
+            drawTranslationStatus(
+                String(localized: "screenshot.translate.recognizing"),
+                near: selection
+            )
+        case .translating:
+            translationToolbarFrame = nil
+            drawTranslationLines(state, isTranslating: true)
+            drawTranslationStatus(
+                String(localized: "screenshot.translate.processing"),
+                near: selection
+            )
+        case .done:
+            drawTranslationLines(state, isTranslating: false)
+            drawTranslationToolbar(state: state, near: selection)
+        case .error(let message):
+            translationToolbarFrame = nil
+            drawTranslationStatus(message, near: selection)
+        }
+    }
+
+    private func drawTranslationLines(
+        _ state: TranslationOverlayState,
+        isTranslating: Bool
+    ) {
+        for line in state.lines {
+            let rect = line.viewRect.insetBy(dx: -2, dy: -1)
+            if line.isTranslated {
+                NSColor.white.withAlphaComponent(0.92).setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
+                NSColor.systemBlue.withAlphaComponent(0.3).setStroke()
+                let border = NSBezierPath(
+                    roundedRect: rect,
+                    xRadius: 3,
+                    yRadius: 3
+                )
+                border.lineWidth = 0.5
+                border.stroke()
+
+                let attributes: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(
+                        ofSize: min(max(line.viewRect.height * 0.7, 10), 18),
+                        weight: .medium
+                    ),
+                    .foregroundColor: NSColor.black
+                ]
+                drawTextInRect(
+                    line.translatedText,
+                    in: rect.insetBy(dx: 4, dy: 2),
+                    attributes: attributes
+                )
+            } else if isTranslating {
+                NSColor.white.withAlphaComponent(0.45).setFill()
+                NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
+            }
+        }
+    }
+
+    private func drawTranslationStatus(_ message: String, near selection: CGRect) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+            .foregroundColor: NSColor.white
+        ]
+        let textSize = message.size(withAttributes: attributes)
+        let width = textSize.width + 28
+        let height = textSize.height + 14
+        let x = min(
+            max(selection.midX - width / 2, 8),
+            bounds.maxX - width - 8
+        )
+        let y = min(selection.maxY + 12, bounds.maxY - height - 8)
+        let rect = CGRect(x: x, y: y, width: width, height: height)
+
+        NSColor.black.withAlphaComponent(0.82).setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8).fill()
+
+        if case .translating = translationOverlay?.phase {
+            let spinnerSize: CGFloat = 12
+            let spinnerRect = CGRect(
+                x: rect.minX + 8,
+                y: rect.midY - spinnerSize / 2,
+                width: spinnerSize,
+                height: spinnerSize
+            )
+            NSColor.white.withAlphaComponent(0.7).setStroke()
+            let path = NSBezierPath(
+                roundedRect: spinnerRect.insetBy(dx: 1, dy: 1),
+                xRadius: 2,
+                yRadius: 2
+            )
+            path.lineWidth = 1.5
+            path.stroke()
+        }
+
+        message.draw(
+            at: CGPoint(x: rect.minX + 24, y: rect.midY - textSize.height / 2),
+            withAttributes: attributes
+        )
+    }
+
+    private func drawTranslationToolbar(
+        state: TranslationOverlayState,
+        near selection: CGRect
+    ) {
+        let buttonSize: CGFloat = 30
+        let spacing: CGFloat = 4
+        let totalWidth = CGFloat(2) * (buttonSize + spacing) + 12
+        let height: CGFloat = 40
+        let maximumX = max(bounds.width - totalWidth - 8, 8)
+        let x = min(max(selection.midX - totalWidth / 2, 8), maximumX)
+        let preferredY = selection.minY - height - 9
+        let y = preferredY >= 8
+            ? preferredY
+            : min(selection.maxY + 9, bounds.height - height - 8)
+        let toolbarRect = CGRect(x: x, y: y, width: totalWidth, height: height)
+        translationToolbarFrame = toolbarRect
+
+        NSColor.windowBackgroundColor.withAlphaComponent(0.96).setFill()
+        NSBezierPath(roundedRect: toolbarRect, xRadius: 9, yRadius: 9).fill()
+        NSColor.separatorColor.setStroke()
+        let border = NSBezierPath(
+            roundedRect: toolbarRect.insetBy(dx: 0.5, dy: 0.5),
+            xRadius: 9,
+            yRadius: 9
+        )
+        border.lineWidth = 1
+        border.stroke()
+
+        let copyRect = CGRect(
+            x: toolbarRect.minX + 6,
+            y: toolbarRect.minY + 5,
+            width: buttonSize,
+            height: buttonSize
+        )
+        let copySymbol = "doc.on.doc"
+        if let image = NSImage(
+            systemSymbolName: copySymbol,
+            accessibilityDescription: nil
+        ) {
+            let config = NSImage.SymbolConfiguration(
+                pointSize: 14,
+                weight: .medium
+            )
+            let configured = image.withSymbolConfiguration(config) ?? image
+            configured.draw(
+                in: copyRect,
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: false,
+                hints: nil
+            )
+        }
+
+        let closeRect = CGRect(
+            x: toolbarRect.minX + 6 + buttonSize + spacing,
+            y: toolbarRect.minY + 5,
+            width: buttonSize,
+            height: buttonSize
+        )
+        let closeSymbol = "xmark"
+        if let image = NSImage(
+            systemSymbolName: closeSymbol,
+            accessibilityDescription: nil
+        ) {
+            let config = NSImage.SymbolConfiguration(
+                pointSize: 14,
+                weight: .medium
+            )
+            let configured = image.withSymbolConfiguration(config) ?? image
+            NSColor.systemRed.withAlphaComponent(0.15).setFill()
+            NSBezierPath(
+                roundedRect: closeRect.insetBy(dx: -2, dy: -2),
+                xRadius: 6,
+                yRadius: 6
+            ).fill()
+            configured.draw(
+                in: closeRect,
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1,
+                respectFlipped: false,
+                hints: nil
+            )
+        }
+    }
+
+    private func drawTextInRect(
+        _ text: String,
+        in rect: CGRect,
+        attributes: [NSAttributedString.Key: Any]
+    ) {
+        let container = NSTextContainer()
+        container.size = rect.size
+        container.lineFragmentPadding = 0
+        container.maximumNumberOfLines = 3
+        let layoutManager = NSLayoutManager()
+        layoutManager.addTextContainer(container)
+        let textStorage = NSTextStorage(
+            string: text,
+            attributes: attributes
+        )
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.glyphRange(for: container)
+        let usedRect = layoutManager.usedRect(for: container)
+        let drawOrigin = CGPoint(
+            x: rect.minX,
+            y: rect.minY + (rect.height - usedRect.height) / 2
+        )
+        layoutManager.drawBackground(forGlyphRange: NSRange(location: 0, length: layoutManager.numberOfGlyphs), at: drawOrigin)
+        layoutManager.drawGlyphs(forGlyphRange: NSRange(location: 0, length: layoutManager.numberOfGlyphs), at: drawOrigin)
     }
 
     private func drawColorInspectorIfNeeded() {
